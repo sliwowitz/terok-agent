@@ -1,0 +1,23 @@
+exclude = [
+    "**/__pycache__",
+    "**/tests/**",
+    "build",
+    "dist",
+    ".venv",
+    "docs",
+]
+
+source_roots = ["src"]
+exact = true
+forbid_circular_dependencies = true
+ignore_type_checking_imports = true
+
+# ── Module Boundaries ───────────────────────────────────────────────
+#
+# Initial scaffolding — single module, no internal deps yet.
+# Will expand as instrumentation modules are extracted from terok.
+
+# Package root — public API
+[[modules]]
+path = "terok_agent"
+depends_on = []
