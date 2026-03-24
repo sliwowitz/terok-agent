@@ -41,6 +41,22 @@ def _cmd_agents(args: argparse.Namespace) -> None:
         print(f"{name:<{w_name}}  {label:<{w_label}}  {kind}")
 
 
+def _cmd_build(args: argparse.Namespace) -> None:
+    """Build L0+L1 container images."""
+    from .build import BuildError, build_base_images
+
+    try:
+        images = build_base_images(
+            args.base,
+            rebuild=args.rebuild,
+            full_rebuild=args.full_rebuild,
+        )
+    except BuildError as e:
+        raise SystemExit(str(e)) from e
+    print(f"\nL0: {images.l0}")
+    print(f"L1: {images.l1}")
+
+
 def main() -> None:
     """Run the terok-agent CLI."""
     parser = argparse.ArgumentParser(prog="terok-agent", description="Single-agent task runner")
@@ -50,6 +66,19 @@ def main() -> None:
     agents_p = sub.add_parser("agents", help="List registered agents")
     agents_p.add_argument("--all", action="store_true", help="Include tools (gh, glab)")
     agents_p.set_defaults(func=_cmd_agents)
+
+    # build
+    build_p = sub.add_parser("build", help="Build L0+L1 container images")
+    build_p.add_argument(
+        "--base", default="ubuntu:24.04", help="Base OS image (default: ubuntu:24.04)"
+    )
+    build_p.add_argument(
+        "--rebuild", action="store_true", help="Force rebuild (cache bust agent installs)"
+    )
+    build_p.add_argument(
+        "--full-rebuild", action="store_true", help="Force rebuild with --no-cache --pull=always"
+    )
+    build_p.set_defaults(func=_cmd_build)
 
     args = parser.parse_args()
     if hasattr(args, "func"):

@@ -54,8 +54,18 @@ from .agents import AgentConfigSpec, parse_md_agent, prepare_agent_config_dir
 # -- Auth ----------------------------------------------------------------------
 from .auth import AUTH_PROVIDERS, AuthProvider, authenticate
 
-# -- Build resource staging ----------------------------------------------------
-from .build import stage_scripts, stage_tmux_config, stage_toad_agents
+# -- Build: image construction + resource staging ------------------------------
+from .build import (
+    DEFAULT_BASE_IMAGE,
+    BuildError,
+    ImageSet,
+    build_base_images,
+    l0_image_tag,
+    l1_image_tag,
+    stage_scripts,
+    stage_tmux_config,
+    stage_toad_agents,
+)
 
 # -- Config stack --------------------------------------------------------------
 from .config_stack import ConfigScope, ConfigStack
@@ -124,7 +134,13 @@ __all__ = [
     "ConfigScope",
     "ConfigStack",
     "resolve_provider_value",
-    # Build resource staging
+    # Build: image construction + resource staging
+    "DEFAULT_BASE_IMAGE",
+    "BuildError",
+    "ImageSet",
+    "build_base_images",
+    "l0_image_tag",
+    "l1_image_tag",
     "stage_scripts",
     "stage_toad_agents",
     "stage_tmux_config",
