@@ -497,3 +497,21 @@ def load_registry() -> AgentRegistry:
 def get_registry() -> AgentRegistry:
     """Return the singleton registry instance (loaded once, cached)."""
     return load_registry()
+
+
+def ensure_proxy_routes() -> Path:
+    """Generate ``routes.json`` from the YAML registry and write it to disk.
+
+    The routes file is written to the path configured in
+    :class:`~terok_sandbox.SandboxConfig` (typically
+    ``~/.local/share/terok/proxy/routes.json``).
+
+    Returns the path to the written file.
+    """
+    from terok_sandbox import SandboxConfig
+
+    cfg = SandboxConfig()
+    path = cfg.proxy_routes_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(get_registry().generate_routes_json() + "\n")
+    return path

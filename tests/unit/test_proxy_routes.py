@@ -81,3 +81,27 @@ class TestGenerateRoutesJson:
         routes = json.loads(get_registry().generate_routes_json())
         assert "gl" in routes
         assert "glab" not in routes
+
+
+class TestEnsureProxyRoutes:
+    """Verify ensure_proxy_routes writes routes.json to disk."""
+
+    def test_writes_routes_json(self, tmp_path, monkeypatch):
+        """ensure_proxy_routes() creates a valid routes.json file."""
+        from unittest.mock import MagicMock
+
+        import terok_sandbox
+
+        mock_cfg = MagicMock()
+        mock_cfg.proxy_routes_path = tmp_path / "proxy" / "routes.json"
+        monkeypatch.setattr(terok_sandbox, "SandboxConfig", lambda: mock_cfg)
+
+        from terok_agent.registry import ensure_proxy_routes
+
+        path = ensure_proxy_routes()
+
+        assert path.is_file()
+        routes = json.loads(path.read_text())
+        # Should have at least claude route from the YAML registry
+        assert "claude" in routes
+        assert "upstream" in routes["claude"]

@@ -24,6 +24,9 @@ Public API::
     # Instructions
     from terok_agent import resolve_instructions, bundled_default_instructions
 
+    # Credential proxy
+    from terok_agent import ensure_proxy_routes
+
     # Config stack
     from terok_agent import ConfigStack, ConfigScope, resolve_provider_value
 
@@ -91,7 +94,7 @@ from .headless_providers import (
 
 # -- Instructions --------------------------------------------------------------
 from .instructions import bundled_default_instructions, resolve_instructions
-from .registry import CredentialProxyRoute, get_registry
+from .registry import CredentialProxyRoute, ensure_proxy_routes, get_registry
 
 # -- Runner facade -------------------------------------------------------------
 from .runner import AgentRunner
@@ -157,6 +160,7 @@ __all__ = [
     "stage_tmux_config",
     # Credential proxy
     "CredentialProxyRoute",
+    "ensure_proxy_routes",
     "extract_credential",
     # Registry
     "get_registry",
