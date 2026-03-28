@@ -11,15 +11,16 @@ generation from the YAML registry is performed before ``start`` and
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from terok_sandbox import CommandDef
 
 
-def _ensure_routes() -> None:
+def _ensure_routes() -> Path:
     """Generate routes.json from the YAML agent registry."""
     from .registry import ensure_proxy_routes
 
-    ensure_proxy_routes()
+    return ensure_proxy_routes()
 
 
 def _handle_start() -> None:

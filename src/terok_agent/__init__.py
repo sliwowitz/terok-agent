@@ -78,7 +78,6 @@ from .config_stack import ConfigScope, ConfigStack
 
 # -- Credential proxy ----------------------------------------------------------
 from .credential_extractors import extract_credential
-from .proxy_commands import PROXY_COMMANDS
 
 # -- Provider registry ---------------------------------------------------------
 from .headless_providers import (
@@ -95,6 +94,7 @@ from .headless_providers import (
 
 # -- Instructions --------------------------------------------------------------
 from .instructions import bundled_default_instructions, resolve_instructions
+from .proxy_commands import PROXY_COMMANDS
 from .registry import CredentialProxyRoute, ensure_proxy_routes, get_registry
 
 # -- Runner facade -------------------------------------------------------------

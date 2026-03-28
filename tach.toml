@@ -112,6 +112,13 @@ depends_on = [
     "terok_agent.registry",
 ]
 
+# Credential proxy CLI commands — wraps sandbox lifecycle + route generation
+[[modules]]
+path = "terok_agent.proxy_commands"
+depends_on = [
+    "terok_agent.registry",
+]
+
 # Command registry — defines all CLI commands
 [[modules]]
 path = "terok_agent.commands"
@@ -128,6 +135,7 @@ depends_on = [
 path = "terok_agent.cli"
 depends_on = [
     "terok_agent.commands",
+    "terok_agent.proxy_commands",
 ]
 
 # Package root — public API re-exports + registry bootstrap
@@ -143,6 +151,7 @@ depends_on = [
     "terok_agent.credential_extractors",
     "terok_agent.headless_providers",
     "terok_agent.instructions",
+    "terok_agent.proxy_commands",
     "terok_agent.registry",
     "terok_agent.runner",
 ]
