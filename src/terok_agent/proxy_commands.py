@@ -99,10 +99,28 @@ def _handle_routes() -> None:
 
 
 PROXY_COMMANDS: tuple[CommandDef, ...] = (
-    CommandDef(name="start", help="Start the credential proxy daemon", handler=_handle_start, group="proxy"),
-    CommandDef(name="stop", help="Stop the credential proxy daemon", handler=_handle_stop, group="proxy"),
-    CommandDef(name="status", help="Show credential proxy status", handler=_handle_status, group="proxy"),
-    CommandDef(name="install", help="Install systemd socket activation", handler=_handle_install, group="proxy"),
-    CommandDef(name="uninstall", help="Remove systemd units", handler=_handle_uninstall, group="proxy"),
-    CommandDef(name="routes", help="Regenerate routes.json from YAML registry", handler=_handle_routes, group="proxy"),
+    CommandDef(
+        name="start", help="Start the credential proxy daemon", handler=_handle_start, group="proxy"
+    ),
+    CommandDef(
+        name="stop", help="Stop the credential proxy daemon", handler=_handle_stop, group="proxy"
+    ),
+    CommandDef(
+        name="status", help="Show credential proxy status", handler=_handle_status, group="proxy"
+    ),
+    CommandDef(
+        name="install",
+        help="Install systemd socket activation",
+        handler=_handle_install,
+        group="proxy",
+    ),
+    CommandDef(
+        name="uninstall", help="Remove systemd units", handler=_handle_uninstall, group="proxy"
+    ),
+    CommandDef(
+        name="routes",
+        help="Regenerate routes.json from YAML registry",
+        handler=_handle_routes,
+        group="proxy",
+    ),
 )
