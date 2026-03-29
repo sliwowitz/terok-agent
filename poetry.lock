@@ -2240,13 +2240,13 @@ develop = false
 [package.dependencies]
 aiohttp = ">=3.9"
 platformdirs = ">=4.0"
-terok-shield = {git = "https://github.com/sliwowitz/terok-shield.git", rev = "3139ecafa16e8a3c94451aaba5275c11766502d6"}
+terok-shield = {git = "https://github.com/sliwowitz/terok-shield.git", rev = "a77ee730921ef30af6ef9036565e4c74b413a90f"}
 
 [package.source]
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
-reference = "59fae9f26a074af6e946f8dc3f6cabe4ed988eb6"
-resolved_reference = "59fae9f26a074af6e946f8dc3f6cabe4ed988eb6"
+reference = "4f8c81ef47c860cb3e088c0a3d76c4f1c5d9a1f1"
+resolved_reference = "4f8c81ef47c860cb3e088c0a3d76c4f1c5d9a1f1"
 
 [[package]]
 name = "terok-shield"
@@ -2264,8 +2264,8 @@ PyYAML = ">=6.0"
 [package.source]
 type = "git"
 url = "https://github.com/sliwowitz/terok-shield.git"
-reference = "3139ecafa16e8a3c94451aaba5275c11766502d6"
-resolved_reference = "3139ecafa16e8a3c94451aaba5275c11766502d6"
+reference = "a77ee730921ef30af6ef9036565e4c74b413a90f"
+resolved_reference = "a77ee730921ef30af6ef9036565e4c74b413a90f"
 
 [[package]]
 name = "tomli"
@@ -2632,4 +2632,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "a56b28bb35cfe9fc7694a95354b8085c7b2321d1b6ecba53613ddb341e4189a7"
+content-hash = "45478ddcd56f82e310dc891b89f07c7443b4e2d4ad262acf7f8df6a807081b59"
