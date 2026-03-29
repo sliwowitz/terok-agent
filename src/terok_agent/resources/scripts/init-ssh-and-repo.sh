@@ -6,39 +6,43 @@
 set -euo pipefail
 
 # Expected env:
-#   SSH_KEY_NAME        - private key name in ~/.ssh (without .pub)
-#   REPO_ROOT           - target repo dir (e.g. /workspace/ultimate-container)
-#   CODE_REPO           - git URL (https://, git@, or file://)
-#   GIT_BRANCH          - optional, e.g. "main" or "master"
-#   GIT_RESET_MODE      - "none" (default), "hard", or "soft"
-#   CLONE_FROM          - optional alternate source to seed the repo (e.g. file:///git-gate/gate.git)
-#   EXTERNAL_REMOTE_URL - optional URL for upstream repo in gatekeeping mode (added as "external" remote)
+#   REPO_ROOT               - target repo dir (e.g. /workspace/ultimate-container)
+#   CODE_REPO               - git URL (https://, git@, or file://)
+#   GIT_BRANCH              - optional, e.g. "main" or "master"
+#   GIT_RESET_MODE          - "none" (default), "hard", or "soft"
+#   CLONE_FROM              - optional alternate source to seed the repo (e.g. file:///git-gate/gate.git)
+#   EXTERNAL_REMOTE_URL     - optional URL for upstream repo in gatekeeping mode (added as "external" remote)
+#   TEROK_SSH_AGENT_PORT    - optional, TCP port for SSH agent proxy on host
+#   TEROK_SSH_AGENT_TOKEN   - optional, phantom token for SSH agent authentication
 
 : "${GIT_RESET_MODE:=none}"
 
 : "${HOME:=/home/dev}"
-SSH_DIR="${HOME}/.ssh"
 
-if [[ -n "${SSH_KEY_NAME:-}" ]]; then
-  echo ">> SSH: checking ${SSH_KEY_NAME} in ${SSH_DIR}"
-  if [[ -f "${SSH_DIR}/${SSH_KEY_NAME}" && -f "${SSH_DIR}/${SSH_KEY_NAME}.pub" && -f "${SSH_DIR}/config" ]]; then
-    install -d -m 700 "${SSH_DIR}" || true
-    chmod 700 "${SSH_DIR}" || true
-    chmod 600 "${SSH_DIR}/${SSH_KEY_NAME}" || true
-    chmod 644 "${SSH_DIR}/${SSH_KEY_NAME}.pub" || true
-    chmod 644 "${SSH_DIR}/config" || true
+# SSH agent proxy: bridge SSH_AUTH_SOCK to the host-side SSH agent handler.
+# The proxy holds private keys on the host and signs on behalf of the container.
+if [[ -n "${TEROK_SSH_AGENT_PORT:-}" ]] && [[ -n "${TEROK_SSH_AGENT_TOKEN:-}" ]] && command -v socat >/dev/null 2>&1; then
+  rm -f /tmp/ssh-agent.sock
+  cat > /tmp/ssh-agent-bridge.sh << 'BRIDGE_EOF'
+#!/bin/bash
+# Send length-prefixed phantom token then proxy bidirectionally
+TOKEN="${TEROK_SSH_AGENT_TOKEN}"
+LEN=${#TOKEN}
+printf "\x$(printf '%02x' $(((LEN>>24)&0xFF)))\x$(printf '%02x' $(((LEN>>16)&0xFF)))\x$(printf '%02x' $(((LEN>>8)&0xFF)))\x$(printf '%02x' $((LEN&0xFF)))%s" "$TOKEN"
+exec cat
+BRIDGE_EOF
+  chmod +x /tmp/ssh-agent-bridge.sh
+  socat UNIX-LISTEN:/tmp/ssh-agent.sock,fork \
+    "EXEC:/tmp/ssh-agent-bridge.sh!!TCP:host.containers.internal:${TEROK_SSH_AGENT_PORT}" &
+  export SSH_AUTH_SOCK=/tmp/ssh-agent.sock
+  echo ">> SSH agent bridge started (socat PID: $!, SSH_AUTH_SOCK=${SSH_AUTH_SOCK})"
 
-    if command -v ssh >/dev/null 2>&1; then
-      # Only warm GitHub known_hosts if the project's code repo uses github.com
-      if [[ -n "${CODE_REPO:-}" && "${CODE_REPO}" == *"github.com"* ]]; then
-        echo '>> warm github known_hosts (best-effort)'
-        ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR git@github.com || true
-      fi
-    else
-      echo 'SSH not installed'
+  # Warm GitHub known_hosts (uses the agent for authentication)
+  if command -v ssh >/dev/null 2>&1; then
+    if [[ -n "${CODE_REPO:-}" && "${CODE_REPO}" == *"github.com"* ]]; then
+      echo '>> warm github known_hosts (best-effort)'
+      ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR git@github.com || true
     fi
-  else
-    echo ">> SSH not fully configured (missing key or config); continuing without SSH"
   fi
 fi
 
