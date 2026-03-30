@@ -68,6 +68,11 @@ glab() {
   )
 }
 
+# ── SSH agent ─────────────────────────────────────────────────────────────────
+
+# Source SSH_AUTH_SOCK if the init script set up the SSH agent bridge.
+[ -r "${HOME}/.local/share/terok/ssh-auth-env" ] && . "${HOME}/.local/share/terok/ssh-auth-env"
+
 # ── Per-project agent wrappers ────────────────────────────────────────────────
 
 # Source per-task agent wrappers via the L1 symlink to the bind-mounted
