@@ -405,8 +405,8 @@ class TestFormatCredentials:
         status = MagicMock(credentials_stored=())
         assert _format_credentials(status) == "none stored"
 
-    def test_db_failure_falls_back_to_plain_names(self) -> None:
-        """Falls back to plain provider names when DB is unreadable."""
+    def test_status_display_degrades_gracefully_on_db_error(self) -> None:
+        """Status display shows plain names when its read-only DB connection fails."""
         from terok_agent.proxy_commands import _format_credentials
 
         status = MagicMock(
