@@ -62,6 +62,16 @@ class TestProxyRoutesParsed:
             assert route.socket_path == "", f"{name} should have no socket_path"
             assert route.socket_env == "", f"{name} should have no socket_env"
 
+    def test_partial_socket_config_rejected(self) -> None:
+        """Setting only socket_path or only socket_env raises ValueError."""
+        from terok_agent.roster import _to_proxy_route
+
+        base = {"route_prefix": "test", "upstream": "https://example.com"}
+        with pytest.raises(ValueError, match="both.*together"):
+            _to_proxy_route("test", {"credential_proxy": {**base, "socket_path": "/tmp/s.sock"}})
+        with pytest.raises(ValueError, match="both.*together"):
+            _to_proxy_route("test", {"credential_proxy": {**base, "socket_env": "MY_SOCK"}})
+
     def test_opencode_agents_have_routes(self) -> None:
         """Blablador and KISSKI have proxy routes."""
         reg = get_roster()
