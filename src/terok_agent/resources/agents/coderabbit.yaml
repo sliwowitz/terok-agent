@@ -19,6 +19,11 @@ credential_proxy:
   # Phantom tokens cannot reach the upstream without proxy routing.
   # Binary not shipped in L1; sidecar architecture under consideration.
 
+sidecar:
+  tool_name: coderabbit
+  env_map:
+    CODERABBIT_API_KEY: key     # inject real key from credential DB
+
 auth:
   host_dir: _coderabbit-config
   container_mount: /home/dev/.coderabbit

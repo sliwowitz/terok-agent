@@ -79,10 +79,14 @@ def _handle_agents(*, show_all: bool = False) -> None:
 
 
 def _handle_build(
-    *, base: str = "ubuntu:24.04", rebuild: bool = False, full_rebuild: bool = False
+    *,
+    base: str = "ubuntu:24.04",
+    rebuild: bool = False,
+    full_rebuild: bool = False,
+    sidecar: bool = False,
 ) -> None:
-    """Build L0+L1 container images."""
-    from .build import BuildError, build_base_images
+    """Build L0+L1 container images (optionally include sidecar L1)."""
+    from .build import BuildError, build_base_images, build_sidecar_image
 
     try:
         images = build_base_images(base, rebuild=rebuild, full_rebuild=full_rebuild)
@@ -90,6 +94,13 @@ def _handle_build(
         raise SystemExit(str(e)) from e
     print(f"\nL0: {images.l0}")
     print(f"L1: {images.l1}")
+
+    if sidecar:
+        try:
+            tag = build_sidecar_image(base, rebuild=rebuild, full_rebuild=full_rebuild)
+        except BuildError as e:
+            raise SystemExit(str(e)) from e
+        print(f"L1 (sidecar): {tag}")
 
 
 def _handle_run(
@@ -169,6 +180,34 @@ def _handle_auth(*, agent: str, api_key: str | None = None) -> None:
     from .proxy_config import write_proxy_config
 
     write_proxy_config(agent)
+
+
+def _handle_run_tool(
+    *,
+    tool: str,
+    repo: str = ".",
+    branch: str | None = None,
+    gate: bool = True,
+    no_gate: bool = False,
+    name: str | None = None,
+    timeout: int = 600,
+    tool_args: list[str] | None = None,
+) -> None:
+    """Run a tool in a sidecar container."""
+    from .runner import AgentRunner
+
+    effective_gate = gate and not no_gate
+    runner = AgentRunner()
+    cname = runner.run_tool(
+        tool,
+        repo,
+        tool_args=tuple(tool_args or ()),
+        branch=branch,
+        gate=effective_gate,
+        name=name,
+        timeout=timeout,
+    )
+    print(f"Container: {cname}")
 
 
 def _handle_ls() -> None:
@@ -253,6 +292,23 @@ BUILD_COMMAND = CommandDef(
         ArgDef(name="--base", default="ubuntu:24.04", help="Base OS image (default: ubuntu:24.04)"),
         ArgDef(name="--rebuild", action="store_true", help="Force rebuild (cache bust)"),
         ArgDef(name="--full-rebuild", action="store_true", help="Force --no-cache --pull=always"),
+        ArgDef(name="--sidecar", action="store_true", help="Also build sidecar L1 (CodeRabbit)"),
+    ),
+)
+
+RUN_TOOL_COMMAND = CommandDef(
+    name="run-tool",
+    help="Run a tool in a sidecar container (separate L1, real API key)",
+    handler=_handle_run_tool,
+    args=(
+        ArgDef(name="tool", help="Tool name (coderabbit)"),
+        ArgDef(name="repo", nargs="?", default=".", help="Local path or git URL (default: .)"),
+        ArgDef(name="--branch", help="Git branch to check out"),
+        ArgDef(name="--gate", action="store_true", default=True, help="Use gate (default)"),
+        ArgDef(name="--no-gate", action="store_true", help="Disable gate"),
+        ArgDef(name="--name", help="Container name override"),
+        ArgDef(name="--timeout", type=int, default=600, help="Timeout in seconds (default: 600)"),
+        ArgDef(name="--", dest="tool_args", nargs="*", help="Extra args passed to the tool"),
     ),
 )
 
@@ -268,6 +324,7 @@ STOP_COMMAND = CommandDef(
 #: All terok-agent commands.
 COMMANDS: tuple[CommandDef, ...] = (
     RUN_COMMAND,
+    RUN_TOOL_COMMAND,
     AUTH_COMMAND,
     AGENTS_COMMAND,
     BUILD_COMMAND,
