@@ -173,12 +173,9 @@ class TestCaptureWritesCredentialsFile:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
-        with (
-            patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
-            patch("terok_agent.paths.mounts_dir", return_value=mounts),
-        ):
+        with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
             mock_cfg_cls.return_value.proxy_db_path = db_path
-            _capture_credentials("claude", tmp_path, "default")
+            _capture_credentials("claude", tmp_path, "default", mounts_base=mounts)
 
         cred_file = mounts / "_claude-config" / ".credentials.json"
         assert cred_file.is_file()
@@ -192,12 +189,9 @@ class TestCaptureWritesCredentialsFile:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
-        with (
-            patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
-            patch("terok_agent.paths.mounts_dir", return_value=mounts),
-        ):
+        with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
             mock_cfg_cls.return_value.proxy_db_path = db_path
-            _capture_credentials("claude", tmp_path, "default")
+            _capture_credentials("claude", tmp_path, "default", mounts_base=mounts)
 
         assert not (mounts / "_claude-config" / ".credentials.json").exists()
 
@@ -209,12 +203,9 @@ class TestCaptureWritesCredentialsFile:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
-        with (
-            patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
-            patch("terok_agent.paths.mounts_dir", return_value=mounts),
-        ):
+        with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
             mock_cfg_cls.return_value.proxy_db_path = db_path
-            _capture_credentials("codex", tmp_path, "default")
+            _capture_credentials("codex", tmp_path, "default", mounts_base=mounts)
 
         assert not (mounts / "_claude-config").exists()
 

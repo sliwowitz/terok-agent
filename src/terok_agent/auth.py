@@ -243,10 +243,17 @@ def _write_claude_credentials_file(cred_data: dict, mounts_base: Path) -> None:
             "rateLimitTier": cred_data.get("rate_limit_tier"),
         }
     }
-    (claude_dir / ".credentials.json").write_text(json.dumps(creds, indent=2) + "\n")
+    (claude_dir / ".credentials.json").write_text(
+        json.dumps(creds, indent=2) + "\n", encoding="utf-8"
+    )
 
 
-def _capture_credentials(provider_name: str, auth_dir: Path, credential_set: str) -> None:
+def _capture_credentials(
+    provider_name: str,
+    auth_dir: Path,
+    credential_set: str,
+    mounts_base: Path | None = None,
+) -> None:
     """Extract credentials from *auth_dir* and store in the credential DB.
 
     Uses the per-provider extractors from :mod:`credential_extractors`.
@@ -286,10 +293,12 @@ def _capture_credentials(provider_name: str, auth_dir: Path, credential_set: str
 
     # Write static .credentials.json for OAuth subscription mode detection
     if provider_name == "claude" and cred_data.get("type") == "oauth":
-        from .paths import mounts_dir
+        if mounts_base is None:
+            from .paths import mounts_dir
 
+            mounts_base = mounts_dir()
         try:
-            _write_claude_credentials_file(cred_data, mounts_dir())
+            _write_claude_credentials_file(cred_data, mounts_base)
             print("Subscription metadata written to shared Claude config mount.")
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: could not write .credentials.json: {exc}")

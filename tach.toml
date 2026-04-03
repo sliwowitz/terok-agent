@@ -18,7 +18,7 @@ ignore_type_checking_imports = true
 #   _util (standalone) ← config_stack ← {agent_config, instructions, agents}
 #   headless_providers (standalone, pure dataclasses)
 #   agents → _util + headless_providers
-#   auth → _util + credential_extractors
+#   auth → _util + credential_extractors + paths
 #   instructions → agent_config
 #   resources (data files, no code deps)
 
