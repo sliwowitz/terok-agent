@@ -353,6 +353,36 @@ def _to_proxy_route(name: str, data: dict) -> CredentialProxyRoute | None:
 
 
 @dataclass(frozen=True)
+class SidecarSpec:
+    """Sidecar container configuration parsed from a ``sidecar:`` YAML section.
+
+    Tools with sidecar specs run in a separate lightweight L1 image
+    (no agent CLIs) and receive the real API key instead of phantom tokens.
+    """
+
+    tool_name: str
+    """Tool identifier used to select the Jinja2 install block in the template."""
+
+    env_map: dict[str, str] = field(default_factory=dict)
+    """Maps container env var names to credential dict keys.
+
+    Example: ``{"CODERABBIT_API_KEY": "key"}`` reads ``cred["key"]`` and
+    injects it as ``CODERABBIT_API_KEY``.
+    """
+
+
+def _to_sidecar_spec(name: str, data: dict) -> SidecarSpec | None:
+    """Parse the optional ``sidecar:`` YAML section into a :class:`SidecarSpec`."""
+    sc = data.get("sidecar")
+    if not sc:
+        return None
+    return SidecarSpec(
+        tool_name=sc.get("tool_name", name),
+        env_map=dict(sc.get("env_map", {})),
+    )
+
+
+@dataclass(frozen=True)
 class AgentRoster:
     """Loaded roster of agents and tools from YAML definitions.
 
@@ -362,6 +392,7 @@ class AgentRoster:
     _providers: dict[str, HeadlessProvider] = field(default_factory=dict)
     _auth_providers: dict[str, AuthProvider] = field(default_factory=dict)
     _proxy_routes: dict[str, CredentialProxyRoute] = field(default_factory=dict)
+    _sidecar_specs: dict[str, SidecarSpec] = field(default_factory=dict)
     _mounts: tuple[MountDef, ...] = ()
     _agent_names: tuple[str, ...] = ()
     _all_names: tuple[str, ...] = ()
@@ -420,6 +451,22 @@ class AgentRoster:
             available = ", ".join(sorted(self._auth_providers))
             raise SystemExit(f"Unknown auth provider: {name!r}. Available: {available}")
         return info
+
+    @property
+    def sidecar_specs(self) -> dict[str, SidecarSpec]:
+        """All sidecar tool specs, keyed by tool name."""
+        return dict(self._sidecar_specs)
+
+    def get_sidecar_spec(self, name: str) -> SidecarSpec:
+        """Look up a sidecar spec by tool name.
+
+        Raises ``SystemExit`` if the name has no sidecar configuration.
+        """
+        spec = self._sidecar_specs.get(name)
+        if spec is None:
+            available = ", ".join(sorted(self._sidecar_specs)) or "(none)"
+            raise SystemExit(f"No sidecar config for {name!r}. Available: {available}")
+        return spec
 
     @property
     def proxy_routes(self) -> dict[str, CredentialProxyRoute]:
@@ -494,6 +541,7 @@ def load_roster() -> AgentRoster:
     providers: dict[str, HeadlessProvider] = {}
     auth_providers: dict[str, AuthProvider] = {}
     proxy_routes: dict[str, CredentialProxyRoute] = {}
+    sidecar_specs: dict[str, SidecarSpec] = {}
     agent_names: list[str] = []
     all_names: list[str] = []
 
@@ -548,10 +596,16 @@ def load_roster() -> AgentRoster:
         if proxy_route is not None:
             proxy_routes[name] = proxy_route
 
+        # Sidecar spec
+        sidecar = _to_sidecar_spec(name, data)
+        if sidecar is not None:
+            sidecar_specs[name] = sidecar
+
     return AgentRoster(
         _providers=providers,
         _auth_providers=auth_providers,
         _proxy_routes=proxy_routes,
+        _sidecar_specs=sidecar_specs,
         _mounts=tuple(seen_mounts.values()),
         _agent_names=tuple(agent_names),
         _all_names=tuple(all_names),

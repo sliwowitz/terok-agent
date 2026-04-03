@@ -69,8 +69,11 @@ from .build import (
     BuildError,
     ImageSet,
     build_base_images,
+    build_sidecar_image,
     l0_image_tag,
     l1_image_tag,
+    l1_sidecar_image_tag,
+    render_l1_sidecar,
     stage_scripts,
     stage_tmux_config,
     stage_toad_agents,
@@ -102,7 +105,7 @@ from .headless_providers import (
 from .instructions import bundled_default_instructions, resolve_instructions
 from .paths import mounts_dir
 from .proxy_commands import PROXY_COMMANDS, scan_leaked_credentials
-from .roster import CredentialProxyRoute, ensure_proxy_routes, get_roster
+from .roster import CredentialProxyRoute, SidecarSpec, ensure_proxy_routes, get_roster
 
 # -- Runner facade -------------------------------------------------------------
 from .runner import AgentRunner
@@ -162,8 +165,11 @@ __all__ = [
     "BuildError",
     "ImageSet",
     "build_base_images",
+    "build_sidecar_image",
     "l0_image_tag",
     "l1_image_tag",
+    "l1_sidecar_image_tag",
+    "render_l1_sidecar",
     "stage_scripts",
     "stage_toad_agents",
     "stage_tmux_config",
@@ -172,6 +178,7 @@ __all__ = [
     "ensure_proxy_routes",
     "extract_credential",
     # Roster
+    "SidecarSpec",
     "get_roster",
     # Command registry
     "AGENT_COMMANDS",

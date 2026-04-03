@@ -13,9 +13,11 @@ import pytest
 from terok_agent.auth import AuthProvider
 from terok_agent.headless_providers import HeadlessProvider
 from terok_agent.roster import (
+    SidecarSpec,
     _load_bundled_agents,
     _to_auth_provider,
     _to_headless_provider,
+    _to_sidecar_spec,
     load_roster,
 )
 
@@ -280,6 +282,42 @@ class TestLoadRegistry:
         env = reg.collect_opencode_provider_env()
         assert any(k.startswith("TEROK_OC_BLABLADOR_") for k in env)
         assert any(k.startswith("TEROK_OC_KISSKI_") for k in env)
+
+
+# ---------------------------------------------------------------------------
+# Sidecar spec deserialization
+# ---------------------------------------------------------------------------
+
+
+class TestDeserializeSidecar:
+    """Verify YAML → SidecarSpec conversion."""
+
+    def test_coderabbit_sidecar_spec(self) -> None:
+        agents = _load_bundled_agents()
+        spec = _to_sidecar_spec("coderabbit", agents["coderabbit"])
+
+        assert isinstance(spec, SidecarSpec)
+        assert spec.tool_name == "coderabbit"
+        assert spec.env_map == {"CODERABBIT_API_KEY": "key"}
+
+    def test_no_sidecar_returns_none(self) -> None:
+        result = _to_sidecar_spec("claude", {"label": "Claude", "binary": "claude"})
+        assert result is None
+
+    def test_roster_exposes_sidecar_specs(self) -> None:
+        reg = load_roster()
+        assert "coderabbit" in reg.sidecar_specs
+        assert reg.sidecar_specs["coderabbit"].tool_name == "coderabbit"
+
+    def test_get_sidecar_spec_resolves(self) -> None:
+        reg = load_roster()
+        spec = reg.get_sidecar_spec("coderabbit")
+        assert spec.tool_name == "coderabbit"
+
+    def test_get_sidecar_spec_unknown_exits(self) -> None:
+        reg = load_roster()
+        with pytest.raises(SystemExit, match="No sidecar config"):
+            reg.get_sidecar_spec("nonexistent")
 
 
 # ---------------------------------------------------------------------------

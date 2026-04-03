@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+# L1 sidecar — lightweight tool container built FROM L0.
+# No agent CLIs, no LLMs — just the specified tool binary and git.
+# Shares L0's cached layers (git, SSH, locale, dev user, init scripts).
+ARG BASE_IMAGE=terok-l0:latest
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+USER root
+
+# Minimal extras for tool install scripts.
+# L0 already provides: git, SSH, curl, ca-certificates, locale, dev user,
+# init-ssh-and-repo.sh, ensure-bridges.sh, ssh-agent-bridge.sh.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG TOOL_CACHE_BUST=0
+
+{% if tool_name == "coderabbit" %}
+# CodeRabbit CLI — local AI code review (single-binary Node.js SEA).
+# Installed to /usr/local/bin via the official installer script.
+# Needs CODERABBIT_API_KEY at runtime (injected directly, not via proxy).
+RUN set -eux; \
+    CODERABBIT_INSTALL_DIR=/usr/local/bin \
+    curl -fsSL https://cli.coderabbit.ai/install.sh | sh; \
+    coderabbit --version
+{% endif %}
+
+USER dev
+ENV HOME=/home/dev
+WORKDIR /workspace
+# No CMD: reuse init-ssh-and-repo.sh from L0 base image

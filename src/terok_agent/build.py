@@ -102,6 +102,11 @@ def l1_image_tag(base_image: str) -> str:
     return f"terok-l1-cli:{_base_tag(base_image)}"
 
 
+def l1_sidecar_image_tag(base_image: str) -> str:
+    """Return the L1 sidecar (tool-only) image tag for *base_image*."""
+    return f"terok-l1-sidecar:{_base_tag(base_image)}"
+
+
 @dataclass(frozen=True)
 class ImageSet:
     """L0 + L1 image tags produced by a build."""
@@ -111,6 +116,9 @@ class ImageSet:
 
     l1: str
     """L1 agent CLI image tag (e.g. ``terok-l1-cli:ubuntu-24.04``)."""
+
+    l1_sidecar: str | None = None
+    """L1 sidecar image tag, if built (e.g. ``terok-l1-sidecar:ubuntu-24.04``)."""
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +240,21 @@ def render_l1(l0_image: str, *, cache_bust: str = "0") -> str:
     return _render_template(
         "l1.agent-cli.Dockerfile.template",
         {"BASE_IMAGE": l0_image, "AGENT_CACHE_BUST": cache_bust},
+    )
+
+
+def render_l1_sidecar(
+    l0_image: str, *, tool_name: str = "coderabbit", cache_bust: str = "0"
+) -> str:
+    """Render the L1 sidecar (tool-only) Dockerfile.
+
+    The sidecar image is built FROM L0 (not L1) and installs a single
+    tool binary — no agent CLIs, no LLMs.  The *tool_name* selects which
+    tool install block to activate via Jinja2 conditional.
+    """
+    return _render_template(
+        "l1.sidecar.Dockerfile.template",
+        {"BASE_IMAGE": l0_image, "TOOL_CACHE_BUST": cache_bust, "tool_name": tool_name},
     )
 
 
@@ -373,3 +396,75 @@ def build_base_images(
             shutil.rmtree(context, ignore_errors=True)
 
     return ImageSet(l0=l0_tag, l1=l1_tag)
+
+
+def build_sidecar_image(
+    base_image: str = DEFAULT_BASE_IMAGE,
+    *,
+    tool_name: str = "coderabbit",
+    rebuild: bool = False,
+    full_rebuild: bool = False,
+    build_dir: Path | None = None,
+) -> str:
+    """Build the L1 sidecar image for a specific tool. Returns the image tag.
+
+    Ensures L0 exists first (builds it if missing), then builds the
+    sidecar image FROM L0.  The sidecar contains only the named tool —
+    no agent CLIs, no LLMs.
+
+    Args:
+        base_image: Base OS image (passed through to L0 build).
+        tool_name: Tool to install (selects Jinja2 conditional in template).
+        rebuild: Force rebuild with cache bust.
+        full_rebuild: Force rebuild with ``--no-cache``.
+        build_dir: Build context directory (must be empty or absent).
+
+    Returns:
+        The sidecar image tag (e.g. ``terok-l1-sidecar:ubuntu-24.04``).
+
+    Raises:
+        BuildError: If podman is missing or a build step fails.
+    """
+    _check_podman()
+
+    base_image = _normalize_base_image(base_image)
+    l0_tag = l0_image_tag(base_image)
+    sidecar_tag = l1_sidecar_image_tag(base_image)
+
+    if not rebuild and not full_rebuild and _image_exists(sidecar_tag) and _image_exists(l0_tag):
+        return sidecar_tag
+
+    # Ensure L0 exists (build if needed)
+    if not _image_exists(l0_tag) or full_rebuild:
+        build_base_images(base_image, rebuild=rebuild, full_rebuild=full_rebuild)
+
+    import tempfile
+
+    own_tmp = build_dir is None
+    context = build_dir or Path(tempfile.mkdtemp(prefix="terok-agent-sidecar-"))
+
+    try:
+        prepare_build_context(context)
+        cache_bust = str(int(time.time()))
+
+        (context / "L1.sidecar.Dockerfile").write_text(
+            render_l1_sidecar(l0_tag, tool_name=tool_name, cache_bust=cache_bust)
+        )
+
+        cmd = ["podman", "build", "-f", str(context / "L1.sidecar.Dockerfile")]
+        cmd += ["--build-arg", f"BASE_IMAGE={l0_tag}"]
+        cmd += ["--build-arg", f"TOOL_CACHE_BUST={cache_bust}"]
+        cmd += ["-t", sidecar_tag]
+        if full_rebuild:
+            cmd.append("--no-cache")
+        cmd.append(str(context))
+
+        print("$", shlex.join(cmd))
+        subprocess.run(cmd, check=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise BuildError(f"Sidecar image build failed: {e}") from e
+    finally:
+        if own_tmp:
+            shutil.rmtree(context, ignore_errors=True)
+
+    return sidecar_tag

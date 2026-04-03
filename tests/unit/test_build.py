@@ -16,11 +16,14 @@ from terok_agent.build import (
     _base_tag,
     _normalize_base_image,
     build_base_images,
+    build_sidecar_image,
     l0_image_tag,
     l1_image_tag,
+    l1_sidecar_image_tag,
     prepare_build_context,
     render_l0,
     render_l1,
+    render_l1_sidecar,
     stage_scripts,
     stage_tmux_config,
     stage_toad_agents,
@@ -62,6 +65,21 @@ class TestImageNaming:
         s = ImageSet(l0="terok-l0:test", l1="terok-l1-cli:test")
         assert s.l0 == "terok-l0:test"
         assert s.l1 == "terok-l1-cli:test"
+
+    def test_l1_sidecar_tag(self) -> None:
+        assert l1_sidecar_image_tag("ubuntu:24.04") == "terok-l1-sidecar:ubuntu-24.04"
+
+    def test_l1_sidecar_tag_custom(self) -> None:
+        tag = l1_sidecar_image_tag("nvidia/cuda:12.4")
+        assert tag == "terok-l1-sidecar:nvidia-cuda-12.4"
+
+    def test_image_set_with_sidecar(self) -> None:
+        s = ImageSet(l0="terok-l0:test", l1="terok-l1-cli:test", l1_sidecar="terok-l1-sidecar:test")
+        assert s.l1_sidecar == "terok-l1-sidecar:test"
+
+    def test_image_set_sidecar_defaults_none(self) -> None:
+        s = ImageSet(l0="terok-l0:test", l1="terok-l1-cli:test")
+        assert s.l1_sidecar is None
 
 
 class TestNormalization:
@@ -300,6 +318,30 @@ class TestTemplateRendering:
         content = render_l1("terok-l0:nvidia-cuda-12.4")
         assert "FROM" in content
 
+    def test_l1_sidecar_is_valid_dockerfile(self) -> None:
+        content = render_l1_sidecar("terok-l0:test")
+        assert content.startswith("# syntax=docker")
+        assert "FROM" in content
+
+    def test_l1_sidecar_contains_coderabbit(self) -> None:
+        content = render_l1_sidecar("terok-l0:test", tool_name="coderabbit")
+        assert "coderabbit" in content.lower()
+
+    def test_l1_sidecar_no_agent_installs(self) -> None:
+        content = render_l1_sidecar("terok-l0:test")
+        assert "@openai/codex" not in content
+        assert "claude.ai/install" not in content
+
+    def test_l1_sidecar_contains_cache_bust_arg(self) -> None:
+        content = render_l1_sidecar("terok-l0:test")
+        assert "ARG TOOL_CACHE_BUST=" in content
+
+    def test_l1_sidecar_unknown_tool_empty(self) -> None:
+        """Unknown tool_name renders a valid but tool-less Dockerfile."""
+        content = render_l1_sidecar("terok-l0:test", tool_name="nonexistent")
+        assert "FROM" in content
+        assert "coderabbit" not in content.lower()
+
 
 # ---------------------------------------------------------------------------
 # Build context preparation
@@ -430,3 +472,79 @@ class TestStageTmuxConfig:
         dest = tmp_path / "tmux"
         stage_tmux_config(dest)
         assert not (dest / "__init__.py").exists()
+
+
+# ---------------------------------------------------------------------------
+# Sidecar image build
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSidecarImage:
+    """Verify sidecar image build orchestration with mocked podman."""
+
+    def test_skips_when_images_exist(self) -> None:
+        from unittest.mock import patch
+
+        with (
+            patch("terok_agent.build._check_podman"),
+            patch("terok_agent.build._image_exists", return_value=True),
+        ):
+            tag = build_sidecar_image()
+        assert tag.startswith("terok-l1-sidecar:")
+
+    def test_builds_when_missing(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        # L0 exists but sidecar does not
+        def image_exists_side_effect(image: str) -> bool:
+            return "l0" in image
+
+        build_dir = tmp_path / "ctx"
+        with (
+            patch("terok_agent.build._check_podman"),
+            patch("terok_agent.build._image_exists", side_effect=image_exists_side_effect),
+            patch("subprocess.run") as mock_run,
+        ):
+            tag = build_sidecar_image(build_dir=build_dir)
+
+        # One podman build call (sidecar only — L0 already exists)
+        assert mock_run.call_count == 1
+        cmd = mock_run.call_args_list[0][0][0]
+        assert "podman" in cmd[0]
+        assert tag in cmd
+
+    def test_sidecar_dockerfile_in_context(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        def image_exists_side_effect(image: str) -> bool:
+            return "l0" in image
+
+        build_dir = tmp_path / "ctx"
+        with (
+            patch("terok_agent.build._check_podman"),
+            patch("terok_agent.build._image_exists", side_effect=image_exists_side_effect),
+            patch("subprocess.run"),
+        ):
+            build_sidecar_image(build_dir=build_dir)
+
+        assert (build_dir / "L1.sidecar.Dockerfile").is_file()
+        content = (build_dir / "L1.sidecar.Dockerfile").read_text()
+        assert "coderabbit" in content.lower()
+
+    def test_build_failure_raises_build_error(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        def image_exists_side_effect(image: str) -> bool:
+            return "l0" in image
+
+        build_dir = tmp_path / "ctx"
+        with (
+            patch("terok_agent.build._check_podman"),
+            patch("terok_agent.build._image_exists", side_effect=image_exists_side_effect),
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.CalledProcessError(1, "podman"),
+            ),
+            pytest.raises(BuildError, match="Sidecar image build failed"),
+        ):
+            build_sidecar_image(build_dir=build_dir)

@@ -107,6 +107,12 @@ class AgentRunner:
         images = build_base_images(self._base_image)
         return images.l1
 
+    def _ensure_sidecar_image(self, tool_name: str) -> str:
+        """Ensure sidecar L1 exists for *tool_name*, return its tag."""
+        from .build import build_sidecar_image
+
+        return build_sidecar_image(self._base_image, tool_name=tool_name)
+
     def _shared_mounts(self, mounts_base: Path) -> list[str]:
         """Derive shared volume mounts from the agent roster.
 
@@ -240,6 +246,44 @@ class AgentRunner:
 
         _logger.debug("Credential proxy: injected %d env vars for %s", len(env), stored_providers)
         return env
+
+    def _direct_credential_env(self, tool_name: str) -> dict[str, str]:
+        """Load the real API key for a sidecar tool and return as env dict.
+
+        Unlike :meth:`_credential_proxy_env` (which creates phantom tokens),
+        this injects the actual credential.  Safe because sidecar containers
+        have no agent code that could leak it.
+        """
+        from terok_sandbox import CredentialDB
+
+        spec = self.roster.get_sidecar_spec(tool_name)
+        cfg = self.sandbox.config
+        try:
+            db = CredentialDB(cfg.proxy_db_path)
+        except Exception as exc:
+            print(
+                f"Warning [runner]: credential DB unavailable: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return {}
+        try:
+            cred = db.load_credential("default", tool_name)
+        finally:
+            db.close()
+
+        if cred is None:
+            print(
+                f"Warning [runner]: no credentials stored for {tool_name!r}. "
+                f"Run: terok-agent auth {tool_name} --api-key <key>",
+                file=sys.stderr,
+            )
+            return {}
+
+        return {
+            env_var: str(cred.get(cred_key, ""))
+            for env_var, cred_key in spec.env_map.items()
+            if cred.get(cred_key)
+        }
 
     @staticmethod
     def _stream_headless(cname: str, timeout: float) -> None:
@@ -485,6 +529,36 @@ class AgentRunner:
             hooks=hooks,
         )
 
+    def run_tool(
+        self,
+        tool: str,
+        repo: str,
+        *,
+        tool_args: tuple[str, ...] = (),
+        branch: str | None = None,
+        gate: bool = True,
+        name: str | None = None,
+        follow: bool = True,
+        timeout: int = 600,
+    ) -> str:
+        """Launch a sidecar tool container. Returns container name.
+
+        Runs the named tool in a lightweight sidecar L1 image (no agent
+        CLIs).  The tool receives the real API key from the credential
+        store — not a phantom token.
+        """
+        return self._run(
+            provider=tool,
+            repo=repo,
+            mode="tool",
+            gate=gate,
+            name=name,
+            follow=follow,
+            timeout=timeout,
+            tool_args=tool_args,
+            branch=branch,
+        )
+
     def _run(
         self,
         *,
@@ -504,16 +578,22 @@ class AgentRunner:
         unrestricted: bool = True,
         gpu: bool = False,
         hooks: LifecycleHooks | None = None,
+        tool_args: tuple[str, ...] = (),
     ) -> str:
-        """Unified launch flow for all three modes."""
-        from .headless_providers import build_headless_command
-
-        agent = self.roster.get_provider(provider)
+        """Unified launch flow for all modes (headless, interactive, web, tool)."""
+        is_tool = mode == "tool"
         task_id = _generate_task_id()
         code_repo, local_path = _resolve_repo(repo)
 
-        # Ensure images
-        l1_tag = self._ensure_images()
+        # Ensure images — sidecar L1 for tools, agent L1 for everything else
+        if is_tool:
+            sidecar_spec = self.roster.get_sidecar_spec(provider)
+            image_tag = self._ensure_sidecar_image(sidecar_spec.tool_name)
+        else:
+            from .headless_providers import build_headless_command
+
+            agent = self.roster.get_provider(provider)
+            image_tag = self._ensure_images()
 
         # Task directory (ephemeral for standalone runs)
         task_dir = Path(tempfile.mkdtemp(prefix=f"terok-agent-{task_id}-"))
@@ -523,15 +603,16 @@ class AgentRunner:
 
         mounts_base = mounts_dir()
 
-        # Prepare agent config (pass local_path so repo instructions.md is found)
-        agent_config_dir = self._prepare_agent_config(
-            task_dir,
-            task_id,
-            provider,
-            prompt=prompt,
-            mounts_base=mounts_base,
-            project_root=local_path,
-        )
+        # Prepare agent config — tools don't need wrappers or instructions
+        if not is_tool:
+            agent_config_dir = self._prepare_agent_config(
+                task_dir,
+                task_id,
+                provider,
+                prompt=prompt,
+                mounts_base=mounts_base,
+                project_root=local_path,
+            )
 
         # Assemble environment
         env = self._base_env(task_id, provider)
@@ -553,23 +634,26 @@ class AgentRunner:
             workspace.mkdir(parents=True, exist_ok=True)
             volumes.append(f"{workspace}:/workspace:Z")
 
-        # Shared auth mounts (derived from roster)
-        volumes += self._shared_mounts(mounts_base)
-
-        # Credential proxy: inject phantom tokens and base URL overrides
-        env.update(self._credential_proxy_env(task_id))
-
-        # Agent config mount
-        volumes.append(f"{agent_config_dir}:/home/dev/.terok:Z")
-
-        # Permission mode — unrestricted enables auto-approve for all agents
-        if unrestricted:
-            env["TEROK_UNRESTRICTED"] = "1"
-            env.update(self.roster.collect_all_auto_approve_env())
+        if is_tool:
+            # Sidecar: inject real API key, no shared agent mounts
+            env.update(self._direct_credential_env(provider))
+        else:
+            # Agent: shared auth mounts + phantom tokens + agent config + permission mode
+            volumes += self._shared_mounts(mounts_base)
+            env.update(self._credential_proxy_env(task_id))
+            volumes.append(f"{agent_config_dir}:/home/dev/.terok:Z")
+            if unrestricted:
+                env["TEROK_UNRESTRICTED"] = "1"
+                env.update(self.roster.collect_all_auto_approve_env())
 
         # Build command based on mode
         extra_args: list[str] = []
-        if mode == "headless":
+        if mode == "tool":
+            tool_cmd = f"init-ssh-and-repo.sh && {shlex.quote(provider)}"
+            if tool_args:
+                tool_cmd += " " + " ".join(shlex.quote(a) for a in tool_args)
+            command = ["bash", "-lc", tool_cmd]
+        elif mode == "headless":
             cmd_str = build_headless_command(
                 agent, timeout=timeout, model=model, max_turns=max_turns
             )
@@ -592,7 +676,7 @@ class AgentRunner:
 
         # Launch
         cname = self._launch(
-            image=l1_tag,
+            image=image_tag,
             task_id=task_id,
             env=env,
             volumes=volumes,
@@ -606,7 +690,7 @@ class AgentRunner:
         )
 
         # Follow output if requested
-        if follow and mode == "headless":
+        if follow and mode in ("headless", "tool"):
             self._stream_headless(cname, timeout=float(timeout + 60))
         elif mode == "interactive":
             from terok_sandbox import READY_MARKER
