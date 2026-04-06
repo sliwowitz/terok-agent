@@ -63,26 +63,8 @@ class TestAgentRunner:
         reg = runner.roster
         assert "claude" in reg.agent_names
 
-    def test_shared_mounts_from_roster(self, tmp_path: Path) -> None:
-        runner = AgentRunner()
-        mounts = runner._shared_mounts(tmp_path)
-        # Should have mounts for agents with auth (claude, codex, vibe, gh, glab, etc.)
-        mount_str = " ".join(mounts)
-        assert "_claude-config" in mount_str
-        assert "/home/dev/.claude" in mount_str
-
-    def test_base_env_has_essentials(self) -> None:
-        runner = AgentRunner()
-        env = runner._base_env("task123", "claude")
-        assert env["TASK_ID"] == "task123"
-        assert env["REPO_ROOT"] == "/workspace"
-        assert env["GIT_AUTHOR_NAME"] == "Claude"
-
-    def test_base_env_opencode_vars(self) -> None:
-        runner = AgentRunner()
-        env = runner._base_env("task123", "blablador")
-        # Should include OpenCode provider env vars
-        assert any(k.startswith("TEROK_OC_") for k in env)
+    # test_shared_mounts_from_roster, test_base_env_has_essentials,
+    # test_base_env_opencode_vars moved to test_env_builder.py
 
     def test_run_headless_delegates_to_sandbox_run(self, tmp_path: Path) -> None:
         """Verify headless run delegates to sandbox.run() with correct RunSpec."""
@@ -292,75 +274,26 @@ class TestGateIntegration:
 
 
 class TestCredentialProxyEnv:
-    """Verify _credential_proxy_env integration."""
+    """Verify credential proxy integration (now via env_builder).
 
-    def test_proxy_not_running_returns_empty(self) -> None:
-        """When proxy is not running, returns empty dict."""
+    Detailed token injection tests are in test_env_builder.py.
+    These tests verify the runner delegates correctly.
+    """
+
+    def test_proxy_not_running_no_tokens_in_run(self, tmp_path: Path) -> None:
+        """When proxy is not running, headless run has no TEROK_PROXY_PORT."""
         sandbox = _mock_sandbox()
         runner = AgentRunner(sandbox=sandbox)
 
         with (
+            patch.object(runner, "_ensure_images", return_value="terok-l1-cli:test"),
             patch("terok_sandbox.is_proxy_socket_active", return_value=False),
             patch("terok_sandbox.is_proxy_running", return_value=False),
         ):
-            env = runner._credential_proxy_env("task-1")
+            runner.run_headless("claude", str(tmp_path), prompt="test", follow=False)
 
-        assert env == {}
-
-    def test_proxy_running_injects_phantom_tokens(self, tmp_path: Path) -> None:
-        """When proxy runs and credentials exist, injects phantom env vars."""
-        from terok_sandbox import CredentialDB, SandboxConfig
-
-        # SandboxConfig derives proxy_db_path from state_dir, so set state_dir
-        # to tmp_path and create the DB at the expected location.
-        cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
-        cfg.proxy_db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        db = CredentialDB(cfg.proxy_db_path)
-        db.store_credential("default", "claude", {"type": "api_key", "key": "sk-test"})
-        db.close()
-
-        sandbox = _mock_sandbox()
-        sandbox.config = cfg
-        runner = AgentRunner(sandbox=sandbox)
-
-        with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=True),
-        ):
-            env = runner._credential_proxy_env("task-1")
-
-        assert "ANTHROPIC_API_KEY" in env
-        assert env["ANTHROPIC_API_KEY"].startswith("terok-p-")
-        assert len(env["ANTHROPIC_API_KEY"]) == 40
-        assert "ANTHROPIC_BASE_URL" in env
-        assert (
-            f"host.containers.internal:{cfg.proxy_port}"
-            == env["ANTHROPIC_BASE_URL"].split("://")[1]
-        )
-
-    def test_no_routed_providers_returns_empty(self, tmp_path: Path) -> None:
-        """When credentials exist but none map to proxy routes, returns empty."""
-        from terok_sandbox import CredentialDB, SandboxConfig
-
-        cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
-        cfg.proxy_db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        db = CredentialDB(cfg.proxy_db_path)
-        db.store_credential("default", "nonexistent-provider", {"type": "api_key", "key": "k"})
-        db.close()
-
-        sandbox = _mock_sandbox()
-        sandbox.config = cfg
-        runner = AgentRunner(sandbox=sandbox)
-
-        with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=True),
-        ):
-            env = runner._credential_proxy_env("task-1")
-
-        assert env == {}
+        spec = sandbox.run.call_args[0][0]
+        assert "TEROK_PROXY_PORT" not in spec.env
 
 
 class TestCommandRegistry:

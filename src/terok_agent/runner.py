@@ -113,28 +113,7 @@ class AgentRunner:
 
         return build_sidecar_image(self._base_image, tool_name=tool_name)
 
-    def _shared_mounts(self, mounts_base: Path) -> list[str]:
-        """Derive shared volume mounts from the agent roster.
-
-        Includes both auth config mounts (per-provider) and general mounts
-        (e.g. OpenCode runtime dirs) from the ``mounts:`` YAML section.
-        """
-        seen: set[str] = set()
-        mounts = []
-        for _name, ap in sorted(self.roster.auth_providers.items()):
-            host_dir = mounts_base / ap.host_dir_name
-            host_dir.mkdir(parents=True, exist_ok=True)
-            mount = f"{host_dir}:{ap.container_mount}:z"
-            if ap.host_dir_name not in seen:
-                mounts.append(mount)
-                seen.add(ap.host_dir_name)
-        for m in self.roster.mounts:
-            if m.host_dir not in seen:
-                host_dir = mounts_base / m.host_dir
-                host_dir.mkdir(parents=True, exist_ok=True)
-                mounts.append(f"{host_dir}:{m.container_path}:z")
-                seen.add(m.host_dir)
-        return mounts
+    # _shared_mounts() removed — absorbed into env_builder.assemble_container_env()
 
     def _setup_gate(self, repo_url: str, task_id: str) -> str:
         """Mirror a repo via the sandbox gate and return the gate HTTP URL.
@@ -174,78 +153,7 @@ class AgentRunner:
         token = self.sandbox.create_token(repo_key, task_id)
         return self.sandbox.gate_url(gate_path, token)
 
-    def _credential_proxy_env(self, task_id: str) -> dict[str, str]:
-        """Inject phantom tokens and base URL overrides if the proxy is running.
-
-        Unlike terok (which hard-fails when the proxy is down), the standalone
-        runner silently skips proxy integration — credentials may come from
-        shared config mounts instead.
-
-        The proxy listens on a TCP port on the host; containers reach it via
-        ``host.containers.internal:<port>`` (same pattern as the gate server).
-        """
-        from terok_sandbox import (
-            CredentialDB,
-            get_proxy_port,
-            is_proxy_running,
-            is_proxy_socket_active,
-        )
-
-        cfg = self.sandbox.config
-        if not (is_proxy_socket_active() or is_proxy_running(cfg)):
-            return {}
-
-        proxy_routes = self.roster.proxy_routes
-        try:
-            db = CredentialDB(cfg.proxy_db_path)
-        except Exception as exc:
-            print(
-                f"Warning [runner]: credential proxy is running but DB at "
-                f"{cfg.proxy_db_path} is unavailable: {type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            return {}
-        try:
-            credential_set = "default"
-            stored_providers = set(db.list_credentials(credential_set))
-            routed = stored_providers & proxy_routes.keys()
-            if not routed:
-                return {}
-            # Per-provider phantom tokens — each token encodes the provider
-            tokens = {
-                name: db.create_proxy_token("standalone", task_id, credential_set, name)
-                for name in routed
-            }
-        finally:
-            db.close()
-
-        port = get_proxy_port(cfg)
-        proxy_base = f"http://host.containers.internal:{port}"
-        env: dict[str, str] = {}
-
-        for name, route in proxy_routes.items():
-            if name not in routed:
-                continue
-            for env_var in route.phantom_env:
-                env[env_var] = tokens[name]
-            if route.base_url_env:
-                env[route.base_url_env] = proxy_base
-            # Override OpenCode base URL for proxied providers
-            provider = self.roster.providers.get(name)
-            if provider and provider.opencode_config:
-                oc_base_key = f"TEROK_OC_{name.upper()}_BASE_URL"
-                env[oc_base_key] = f"{proxy_base}/v1"
-            # glab: redirect API to proxy via env vars
-            if name == "glab":
-                env["GITLAB_API_HOST"] = f"host.containers.internal:{port}"
-                env["API_PROTOCOL"] = "http"
-
-        # Signal for init script to start socat bridges
-        if routed:
-            env["TEROK_PROXY_PORT"] = str(port)
-
-        _logger.debug("Credential proxy: injected %d env vars for %s", len(env), stored_providers)
-        return env
+    # _credential_proxy_env() removed — absorbed into env_builder.assemble_container_env()
 
     def _direct_credential_env(self, tool_name: str) -> dict[str, str]:
         """Load the real API key for a sidecar tool and return as env dict.
@@ -326,26 +234,7 @@ class AgentRunner:
         if exit_code != 0:
             print(f"Agent exited with code {exit_code}")
 
-    def _base_env(self, task_id: str, provider_name: str) -> dict[str, str]:
-        """Assemble the base environment variables for a container."""
-        env: dict[str, str] = {
-            "TASK_ID": task_id,
-            "REPO_ROOT": "/workspace",
-            "GIT_RESET_MODE": "none",
-        }
-
-        # OpenCode provider env vars (TEROK_OC_* for Blablador, KISSKI, etc.)
-        env.update(self.roster.collect_opencode_provider_env())
-
-        # Git identity — use the agent's configured identity from roster
-        provider = self.roster.providers.get(provider_name)
-        if provider:
-            env["GIT_AUTHOR_NAME"] = provider.git_author_name
-            env["GIT_AUTHOR_EMAIL"] = provider.git_author_email
-            env["GIT_COMMITTER_NAME"] = provider.git_author_name
-            env["GIT_COMMITTER_EMAIL"] = provider.git_author_email
-
-        return env
+    # _base_env() removed — absorbed into env_builder.assemble_container_env()
 
     def _prepare_agent_config(
         self,
@@ -442,6 +331,9 @@ class AgentRunner:
         unrestricted: bool = True,
         gpu: bool = False,
         hooks: LifecycleHooks | None = None,
+        human_name: str | None = None,
+        human_email: str | None = None,
+        authorship: str | None = None,
     ) -> str:
         """Launch a headless agent run. Returns container name.
 
@@ -464,6 +356,9 @@ class AgentRunner:
             unrestricted=unrestricted,
             gpu=gpu,
             hooks=hooks,
+            human_name=human_name,
+            human_email=human_email,
+            authorship=authorship,
         )
 
     def run_interactive(
@@ -477,6 +372,9 @@ class AgentRunner:
         unrestricted: bool = True,
         gpu: bool = False,
         hooks: LifecycleHooks | None = None,
+        human_name: str | None = None,
+        human_email: str | None = None,
+        authorship: str | None = None,
     ) -> str:
         """Launch an interactive container. Returns container name.
 
@@ -492,6 +390,9 @@ class AgentRunner:
             unrestricted=unrestricted,
             gpu=gpu,
             hooks=hooks,
+            human_name=human_name,
+            human_email=human_email,
+            authorship=authorship,
         )
 
     def run_web(
@@ -506,6 +407,9 @@ class AgentRunner:
         unrestricted: bool = True,
         gpu: bool = False,
         hooks: LifecycleHooks | None = None,
+        human_name: str | None = None,
+        human_email: str | None = None,
+        authorship: str | None = None,
     ) -> str:
         """Launch a toad web container. Returns container name.
 
@@ -527,6 +431,9 @@ class AgentRunner:
             unrestricted=unrestricted,
             gpu=gpu,
             hooks=hooks,
+            human_name=human_name,
+            human_email=human_email,
+            authorship=authorship,
         )
 
     def run_tool(
@@ -579,8 +486,14 @@ class AgentRunner:
         gpu: bool = False,
         hooks: LifecycleHooks | None = None,
         tool_args: tuple[str, ...] = (),
+        human_name: str | None = None,
+        human_email: str | None = None,
+        authorship: str | None = None,
     ) -> str:
         """Unified launch flow for all modes (headless, interactive, web, tool)."""
+        from .env_builder import ContainerEnvSpec, assemble_container_env
+        from .paths import mounts_dir
+
         is_tool = mode == "tool"
         task_id = _generate_task_id()
         code_repo, local_path = _resolve_repo(repo)
@@ -598,13 +511,30 @@ class AgentRunner:
         # Task directory (ephemeral for standalone runs)
         task_dir = Path(tempfile.mkdtemp(prefix=f"terok-agent-{task_id}-"))
 
-        # Env base for shared auth mounts
-        from .paths import mounts_dir
-
         mounts_base = mounts_dir()
 
-        # Prepare agent config — tools don't need wrappers or instructions
-        if not is_tool:
+        if is_tool:
+            # Sidecar tools: minimal env, no shared mounts, real API key
+            env: dict[str, str] = {
+                "TASK_ID": task_id,
+                "REPO_ROOT": "/workspace",
+                "GIT_RESET_MODE": "none",
+            }
+            if branch:
+                env["GIT_BRANCH"] = branch
+            env.update(self._direct_credential_env(provider))
+
+            volumes: list[str] = []
+            if local_path:
+                volumes.append(f"{local_path}:/workspace:Z")
+            elif code_repo:
+                effective_repo = self._setup_gate(code_repo, task_id) if gate else code_repo
+                env["CODE_REPO"] = effective_repo
+                workspace = task_dir / "workspace"
+                workspace.mkdir(parents=True, exist_ok=True)
+                volumes.append(f"{workspace}:/workspace:Z")
+        else:
+            # Agent modes: full env assembly via canonical builder
             agent_config_dir = self._prepare_agent_config(
                 task_dir,
                 task_id,
@@ -614,37 +544,44 @@ class AgentRunner:
                 project_root=local_path,
             )
 
-        # Assemble environment
-        env = self._base_env(task_id, provider)
-        if branch:
-            env["GIT_BRANCH"] = branch
-
-        # Repo access: local bind-mount or git clone (with optional gate)
-        volumes: list[str] = []
-        if local_path:
-            volumes.append(f"{local_path}:/workspace:Z")
-        elif code_repo:
-            if gate:
-                # Gate mode: mirror repo, serve via HTTP, block other egress
-                effective_repo = self._setup_gate(code_repo, task_id)
+            # Resolve workspace and gate URL
+            if local_path:
+                ws_host = local_path
+                resolved_code_repo = None
+            elif code_repo:
+                effective_repo = self._setup_gate(code_repo, task_id) if gate else code_repo
+                ws_host = task_dir / "workspace"
+                ws_host.mkdir(parents=True, exist_ok=True)
+                resolved_code_repo = effective_repo
             else:
-                effective_repo = code_repo
-            env["CODE_REPO"] = effective_repo
-            workspace = task_dir / "workspace"
-            workspace.mkdir(parents=True, exist_ok=True)
-            volumes.append(f"{workspace}:/workspace:Z")
+                ws_host = task_dir / "workspace"
+                ws_host.mkdir(parents=True, exist_ok=True)
+                resolved_code_repo = None
 
-        if is_tool:
-            # Sidecar: inject real API key, no shared agent mounts
-            env.update(self._direct_credential_env(provider))
-        else:
-            # Agent: shared auth mounts + phantom tokens + agent config + permission mode
-            volumes += self._shared_mounts(mounts_base)
-            env.update(self._credential_proxy_env(task_id))
-            volumes.append(f"{agent_config_dir}:/home/dev/.terok:Z")
-            if unrestricted:
-                env["TEROK_UNRESTRICTED"] = "1"
-                env.update(self.roster.collect_all_auto_approve_env())
+            spec_kwargs: dict = {
+                "task_id": task_id,
+                "provider_name": provider,
+                "workspace_host_path": ws_host,
+                "code_repo": resolved_code_repo,
+                "branch": branch,
+                "unrestricted": unrestricted,
+                "agent_config_dir": agent_config_dir,
+                "task_dir": task_dir,
+                "envs_dir": mounts_base,
+            }
+            if human_name:
+                spec_kwargs["human_name"] = human_name
+            if human_email:
+                spec_kwargs["human_email"] = human_email
+            if authorship:
+                spec_kwargs["authorship"] = authorship
+
+            result = assemble_container_env(
+                ContainerEnvSpec(**spec_kwargs),
+                self.roster,
+            )
+            env = dict(result.env)
+            volumes = list(result.volumes)
 
         # Build command based on mode
         extra_args: list[str] = []

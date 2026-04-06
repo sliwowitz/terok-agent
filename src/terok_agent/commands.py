@@ -103,6 +103,28 @@ def _handle_build(
         print(f"L1 (sidecar): {tag}")
 
 
+def _resolve_host_git_identity() -> tuple[str | None, str | None]:
+    """Read git user.name / user.email from the host's global config."""
+    import subprocess
+
+    name = email = None
+    for key, target in (("user.name", "name"), ("user.email", "email")):
+        try:
+            result = subprocess.run(
+                ["git", "config", "--global", key],
+                capture_output=True,
+                timeout=5,
+            )
+            val = result.stdout.decode().strip() if result.returncode == 0 else None
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            val = None
+        if target == "name":
+            name = val
+        else:
+            email = val
+    return name, email
+
+
 def _handle_run(
     *,
     agent: str,
@@ -120,18 +142,32 @@ def _handle_run(
     name: str | None = None,
     restricted: bool = False,
     gpu: bool = False,
+    git_identity_from_host: bool = False,
 ) -> None:
     """Run an agent in a hardened container."""
     from .runner import AgentRunner
 
+    # Resolve human identity from host git config if requested
+    human_name = human_email = authorship = None
+    if git_identity_from_host:
+        human_name, human_email = _resolve_host_git_identity()
+        if human_name:
+            authorship = "agent-human"
+            print(f"Git identity from host: {human_name} <{human_email or 'nobody@localhost'}>")
+        else:
+            print("Warning: --git-identity-from-host: git config user.name not set, skipping")
+
     effective_gate = gate and not no_gate
     runner = AgentRunner()
-    common = {
+    common: dict = {
         "gate": effective_gate,
         "name": name,
         "branch": branch,
         "unrestricted": not restricted,
         "gpu": gpu,
+        "human_name": human_name,
+        "human_email": human_email,
+        "authorship": authorship,
     }
 
     if web:
@@ -262,6 +298,11 @@ RUN_COMMAND = CommandDef(
             help="Restrict agent permissions (no auto-approve, no-new-privileges)",
         ),
         ArgDef(name="--gpu", action="store_true", help="Enable GPU passthrough"),
+        ArgDef(
+            name="--git-identity-from-host",
+            action="store_true",
+            help="Use host git config user.name/email as human committer identity",
+        ),
     ),
 )
 

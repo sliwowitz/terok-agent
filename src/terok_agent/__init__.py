@@ -48,6 +48,7 @@ try:
 except PackageNotFoundError:
     pass  # editable install or running from source without metadata
 
+# -- Container environment assembly --------------------------------------------
 # -- Config resolution ---------------------------------------------------------
 # Re-export protocol types from terok-sandbox for convenience
 from terok_sandbox.doctor import CheckVerdict, DoctorCheck
@@ -91,6 +92,7 @@ from .config_stack import ConfigScope, ConfigStack
 # -- Credential proxy ----------------------------------------------------------
 from .credential_extractors import extract_credential
 from .doctor import agent_doctor_checks
+from .env_builder import ContainerEnvResult, ContainerEnvSpec, assemble_container_env
 
 # -- Provider registry ---------------------------------------------------------
 from .headless_providers import (
@@ -196,4 +198,8 @@ __all__ = [
     "agent_doctor_checks",
     # Runner facade
     "AgentRunner",
+    # Container environment assembly
+    "ContainerEnvSpec",
+    "ContainerEnvResult",
+    "assemble_container_env",
 ]
