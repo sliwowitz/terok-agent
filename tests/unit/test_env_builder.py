@@ -370,6 +370,25 @@ class TestCredentialProxy:
         assert "ANTHROPIC_API_KEY" in result.env
         assert result.env["ANTHROPIC_API_KEY"].startswith("terok-p-")
 
+    def test_no_routed_providers_returns_empty(self, workspace, envs_dir, roster, tmp_path):
+        """Stored credentials that don't match any proxy route produce no tokens."""
+        from terok_sandbox import CredentialDB, SandboxConfig
+
+        cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
+        cfg.proxy_db_path.parent.mkdir(parents=True, exist_ok=True)
+        db = CredentialDB(cfg.proxy_db_path)
+        db.store_credential("default", "nonexistent-provider", {"type": "api_key", "key": "k"})
+        db.close()
+
+        spec = _spec(workspace, envs_dir)
+        with (
+            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.SandboxConfig", return_value=cfg),
+        ):
+            result = assemble_container_env(spec, roster, proxy_bypass=False)
+        assert "TEROK_PROXY_PORT" not in result.env
+        assert "ANTHROPIC_API_KEY" not in result.env
+
     def test_proxy_db_error_returns_empty(self, base_spec, roster):
         """DB open failure returns empty env gracefully."""
         with (

@@ -78,3 +78,42 @@ class TestAgentsCommand:
     def test_unknown_subcommand_exits_nonzero(self) -> None:
         _, _, rc = _run_cli("nonexistent")
         assert rc != 0
+
+
+class TestResolveHostGitIdentity:
+    """Verify _resolve_host_git_identity reads from host git config."""
+
+    def test_reads_name_and_email(self) -> None:
+        from terok_agent.commands import _resolve_host_git_identity
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                type("R", (), {"returncode": 0, "stdout": b"Jane Doe\n"})(),
+                type("R", (), {"returncode": 0, "stdout": b"jane@example.com\n"})(),
+            ]
+            name, email = _resolve_host_git_identity()
+
+        assert name == "Jane Doe"
+        assert email == "jane@example.com"
+
+    def test_returns_none_on_missing_config(self) -> None:
+        from terok_agent.commands import _resolve_host_git_identity
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                type("R", (), {"returncode": 1, "stdout": b""})(),
+                type("R", (), {"returncode": 1, "stdout": b""})(),
+            ]
+            name, email = _resolve_host_git_identity()
+
+        assert name is None
+        assert email is None
+
+    def test_returns_none_when_git_not_found(self) -> None:
+        from terok_agent.commands import _resolve_host_git_identity
+
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            name, email = _resolve_host_git_identity()
+
+        assert name is None
+        assert email is None
