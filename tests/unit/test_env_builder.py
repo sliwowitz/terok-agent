@@ -35,13 +35,33 @@ def workspace(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def base_spec(workspace: Path) -> ContainerEnvSpec:
-    """Minimal spec with only required fields."""
+def envs_dir(tmp_path: Path) -> Path:
+    """Temp-backed envs directory — prevents mutating real home."""
+    d = tmp_path / "envs"
+    d.mkdir()
+    return d
+
+
+@pytest.fixture
+def base_spec(workspace: Path, envs_dir: Path) -> ContainerEnvSpec:
+    """Minimal spec with only required fields (all dirs tmp-backed)."""
     return ContainerEnvSpec(
         task_id="test-123",
         provider_name="claude",
         workspace_host_path=workspace,
+        envs_dir=envs_dir,
     )
+
+
+def _spec(workspace: Path, envs_dir: Path, **overrides) -> ContainerEnvSpec:
+    """Shorthand for a tmp-backed spec with overrides."""
+    defaults = {
+        "task_id": "t1",
+        "provider_name": "claude",
+        "workspace_host_path": workspace,
+        "envs_dir": envs_dir,
+    }
+    return ContainerEnvSpec(**(defaults | overrides))
 
 
 # ---------------------------------------------------------------------------
@@ -81,23 +101,17 @@ class TestBaseEnv:
 class TestGitIdentity:
     """Verify git identity resolution from spec fields or roster fallback."""
 
-    def test_identity_from_roster_provider(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-        )
+    def test_identity_from_roster_provider(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.env["GIT_AUTHOR_NAME"] == "Claude"
         assert result.env["GIT_AUTHOR_EMAIL"] == "noreply@anthropic.com"
-        # Standalone default: committer = author (no human specified)
         assert result.env["GIT_COMMITTER_NAME"] == "Claude"
 
-    def test_explicit_identity_overrides_roster(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
+    def test_explicit_identity_overrides_roster(self, workspace, envs_dir, roster):
+        spec = _spec(
+            workspace,
+            envs_dir,
             git_author_name="Human Author",
             git_author_email="human@example.com",
             git_committer_name="AI Committer",
@@ -109,24 +123,14 @@ class TestGitIdentity:
         assert result.env["GIT_COMMITTER_NAME"] == "AI Committer"
         assert result.env["GIT_COMMITTER_EMAIL"] == "ai@example.com"
 
-    def test_committer_defaults_to_author(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            git_author_name="Custom",
-            git_author_email="custom@test.com",
-        )
+    def test_committer_defaults_to_author(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, git_author_name="Custom", git_author_email="custom@t.com")
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.env["GIT_COMMITTER_NAME"] == "Custom"
-        assert result.env["GIT_COMMITTER_EMAIL"] == "custom@test.com"
+        assert result.env["GIT_COMMITTER_EMAIL"] == "custom@t.com"
 
-    def test_unknown_provider_uses_fallback(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="nonexistent",
-            workspace_host_path=workspace,
-        )
+    def test_unknown_provider_uses_fallback(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, provider_name="nonexistent")
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.env["GIT_AUTHOR_NAME"] == "AI Agent"
 
@@ -145,11 +149,10 @@ class TestAuthorship:
         assert result.env["HUMAN_GIT_NAME"] == "Nobody"
         assert result.env["HUMAN_GIT_EMAIL"] == "nobody@localhost"
 
-    def test_custom_authorship(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
+    def test_custom_authorship(self, workspace, envs_dir, roster):
+        spec = _spec(
+            workspace,
+            envs_dir,
             authorship="agent-human",
             human_name="Jane Doe",
             human_email="jane@example.com",
@@ -168,21 +171,15 @@ class TestAuthorship:
 class TestRepoSetup:
     """Verify repository env vars and branch."""
 
-    def test_code_repo(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            code_repo="http://gate@host:9418/repo",
-        )
+    def test_code_repo(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, code_repo="http://gate@host:9418/repo")
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.env["CODE_REPO"] == "http://gate@host:9418/repo"
 
-    def test_clone_from(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
+    def test_clone_from(self, workspace, envs_dir, roster):
+        spec = _spec(
+            workspace,
+            envs_dir,
             clone_from="http://gate@host:9418/mirror",
             code_repo="https://github.com/user/repo",
         )
@@ -190,13 +187,8 @@ class TestRepoSetup:
         assert result.env["CLONE_FROM"] == "http://gate@host:9418/mirror"
         assert result.env["CODE_REPO"] == "https://github.com/user/repo"
 
-    def test_branch(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            branch="feat/my-branch",
-        )
+    def test_branch(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, branch="feat/my-branch")
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.env["GIT_BRANCH"] == "feat/my-branch"
 
@@ -231,39 +223,23 @@ class TestWorkspaceVolume:
 class TestSharedConfigMounts:
     """Verify roster-derived shared config mounts."""
 
-    def test_claude_config_mounted(self, base_spec, roster, tmp_path):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=base_spec.workspace_host_path,
-            envs_dir=tmp_path / "mounts",
-        )
+    def test_claude_config_mounted(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         mount_str = " ".join(result.volumes)
         assert "_claude-config" in mount_str
         assert "/home/dev/.claude:z" in mount_str
 
-    def test_shared_mounts_use_lowercase_z(self, base_spec, roster, tmp_path):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=base_spec.workspace_host_path,
-            envs_dir=tmp_path / "mounts",
-        )
+    def test_shared_mounts_use_lowercase_z(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         shared = [v for v in result.volumes if ":z" in v and ":Z" not in v]
         assert len(shared) > 0
 
-    def test_host_dirs_created(self, base_spec, roster, tmp_path):
-        mounts_base = tmp_path / "mounts"
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=base_spec.workspace_host_path,
-            envs_dir=mounts_base,
-        )
+    def test_host_dirs_created(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir)
         assemble_container_env(spec, roster, proxy_bypass=True)
-        assert (mounts_base / "_claude-config").is_dir()
+        assert (envs_dir / "_claude-config").is_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -274,18 +250,12 @@ class TestSharedConfigMounts:
 class TestAgentConfigMount:
     """Verify agent config directory mount."""
 
-    def test_agent_config_mounted_when_set(self, workspace, roster, tmp_path):
+    def test_agent_config_mounted_when_set(self, workspace, envs_dir, roster, tmp_path):
         cfg_dir = tmp_path / "agent-config"
         cfg_dir.mkdir()
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            agent_config_dir=cfg_dir,
-        )
+        spec = _spec(workspace, envs_dir, agent_config_dir=cfg_dir)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
-        expected = f"{cfg_dir}:/home/dev/.terok:Z"
-        assert expected in result.volumes
+        assert f"{cfg_dir}:/home/dev/.terok:Z" in result.volumes
 
     def test_no_agent_config_when_none(self, base_spec, roster):
         result = assemble_container_env(base_spec, roster, proxy_bypass=True)
@@ -300,23 +270,13 @@ class TestAgentConfigMount:
 class TestUnrestrictedMode:
     """Verify unrestricted/auto-approve env injection."""
 
-    def test_unrestricted_sets_env(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            unrestricted=True,
-        )
+    def test_unrestricted_sets_env(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, unrestricted=True)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.env["TEROK_UNRESTRICTED"] == "1"
 
-    def test_restricted_omits_env(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            unrestricted=False,
-        )
+    def test_restricted_omits_env(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, unrestricted=False)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert "TEROK_UNRESTRICTED" not in result.env
 
@@ -329,39 +289,23 @@ class TestUnrestrictedMode:
 class TestSharedTaskDir:
     """Verify shared task directory mount and env var."""
 
-    def test_shared_dir_mounted_when_set(self, workspace, roster, tmp_path):
+    def test_shared_dir_mounted_when_set(self, workspace, envs_dir, roster, tmp_path):
         shared = tmp_path / "shared"
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            shared_dir=shared,
-        )
+        spec = _spec(workspace, envs_dir, shared_dir=shared)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert f"{shared}:/shared:z" in result.volumes
         assert result.env["TEROK_SHARED_DIR"] == "/shared"
 
-    def test_shared_dir_custom_mount(self, workspace, roster, tmp_path):
+    def test_shared_dir_custom_mount(self, workspace, envs_dir, roster, tmp_path):
         shared = tmp_path / "data"
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            shared_dir=shared,
-            shared_mount="/data/ipc",
-        )
+        spec = _spec(workspace, envs_dir, shared_dir=shared, shared_mount="/data/ipc")
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert f"{shared}:/data/ipc:z" in result.volumes
         assert result.env["TEROK_SHARED_DIR"] == "/data/ipc"
 
-    def test_shared_dir_created(self, workspace, roster, tmp_path):
+    def test_shared_dir_created(self, workspace, envs_dir, roster, tmp_path):
         shared = tmp_path / "new-shared"
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            shared_dir=shared,
-        )
+        spec = _spec(workspace, envs_dir, shared_dir=shared)
         assemble_container_env(spec, roster, proxy_bypass=True)
         assert shared.is_dir()
 
@@ -379,13 +323,8 @@ class TestSharedTaskDir:
 class TestExtraVolumes:
     """Verify caller-provided extra volumes are appended."""
 
-    def test_extra_volumes_appended(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            extra_volumes=("/host/ssh:/home/dev/.ssh:z",),
-        )
+    def test_extra_volumes_appended(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, extra_volumes=("/host/ssh:/home/dev/.ssh:z",))
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert "/host/ssh:/home/dev/.ssh:z" in result.volumes
 
@@ -410,7 +349,7 @@ class TestCredentialProxy:
             result = assemble_container_env(base_spec, roster, proxy_bypass=False)
         assert "TEROK_PROXY_PORT" not in result.env
 
-    def test_proxy_running_injects_tokens(self, workspace, roster, tmp_path):
+    def test_proxy_running_injects_tokens(self, workspace, envs_dir, roster, tmp_path):
         from terok_sandbox import CredentialDB, SandboxConfig
 
         cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
@@ -419,12 +358,7 @@ class TestCredentialProxy:
         db.store_credential("default", "claude", {"type": "api_key", "key": "sk-test"})
         db.close()
 
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            credential_scope="test-project",
-        )
+        spec = _spec(workspace, envs_dir, credential_scope="test-project")
 
         with (
             patch("terok_sandbox.is_proxy_socket_active", return_value=False),
@@ -436,6 +370,37 @@ class TestCredentialProxy:
         assert "ANTHROPIC_API_KEY" in result.env
         assert result.env["ANTHROPIC_API_KEY"].startswith("terok-p-")
 
+    def test_proxy_db_error_returns_empty(self, base_spec, roster):
+        """DB open failure returns empty env gracefully."""
+        with (
+            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.CredentialDB", side_effect=OSError("corrupt")),
+        ):
+            result = assemble_container_env(base_spec, roster, proxy_bypass=False)
+        assert "TEROK_PROXY_PORT" not in result.env
+
+    def test_proxy_token_creation_error_returns_empty(self, workspace, envs_dir, roster, tmp_path):
+        """Token creation failure returns empty env gracefully."""
+        from terok_sandbox import CredentialDB, SandboxConfig
+
+        cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
+        cfg.proxy_db_path.parent.mkdir(parents=True, exist_ok=True)
+        db = CredentialDB(cfg.proxy_db_path)
+        db.store_credential("default", "claude", {"type": "api_key", "key": "sk-test"})
+        db.close()
+
+        spec = _spec(workspace, envs_dir)
+
+        with (
+            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.SandboxConfig", return_value=cfg),
+            patch(
+                "terok_sandbox.CredentialDB.create_proxy_token", side_effect=RuntimeError("boom")
+            ),
+        ):
+            result = assemble_container_env(spec, roster, proxy_bypass=False)
+        assert "TEROK_PROXY_PORT" not in result.env
+
 
 # ---------------------------------------------------------------------------
 # Task dir
@@ -445,15 +410,10 @@ class TestCredentialProxy:
 class TestTaskDir:
     """Verify task_dir resolution."""
 
-    def test_explicit_task_dir(self, workspace, roster, tmp_path):
+    def test_explicit_task_dir(self, workspace, envs_dir, roster, tmp_path):
         td = tmp_path / "my-task"
         td.mkdir()
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            task_dir=td,
-        )
+        spec = _spec(workspace, envs_dir, task_dir=td)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         assert result.task_dir == td
 
@@ -473,7 +433,6 @@ class TestOpenCodeEnv:
 
     def test_opencode_vars_present(self, base_spec, roster):
         result = assemble_container_env(base_spec, roster, proxy_bypass=True)
-        # Blablador/KISSKI contribute TEROK_OC_* vars
         oc_vars = [k for k in result.env if k.startswith("TEROK_OC_")]
         assert len(oc_vars) > 0
 
@@ -486,24 +445,14 @@ class TestOpenCodeEnv:
 class TestResolveGitIdentityUnit:
     """Unit tests for the internal git identity resolver."""
 
-    def test_spec_fields_take_precedence(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-            git_author_name="Override",
-        )
+    def test_spec_fields_take_precedence(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, git_author_name="Override")
         identity = _resolve_git_identity(spec, roster)
         assert identity["GIT_AUTHOR_NAME"] == "Override"
-        # Committer defaults to author when not specified
         assert identity["GIT_COMMITTER_NAME"] == "Override"
 
-    def test_roster_fallback(self, workspace, roster):
-        spec = ContainerEnvSpec(
-            task_id="t1",
-            provider_name="claude",
-            workspace_host_path=workspace,
-        )
+    def test_roster_fallback(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir)
         identity = _resolve_git_identity(spec, roster)
         assert identity["GIT_AUTHOR_NAME"] == "Claude"
 

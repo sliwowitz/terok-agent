@@ -109,12 +109,20 @@ depends_on = []
 path = "terok_agent.build"
 depends_on = []
 
+# Container environment assembly — single source of truth for env + volumes
+[[modules]]
+path = "terok_agent.env_builder"
+depends_on = [
+    "terok_agent.paths",
+]
+
 # Agent runner facade — composes sandbox + agent config + container launch
 [[modules]]
 path = "terok_agent.runner"
 depends_on = [
     "terok_agent.agents",
     "terok_agent.build",
+    "terok_agent.env_builder",
     "terok_agent.headless_providers",
     "terok_agent.instructions",
     "terok_agent.paths",
@@ -160,6 +168,7 @@ depends_on = [
     "terok_agent.commands",
     "terok_agent.config_stack",
     "terok_agent.credential_extractors",
+    "terok_agent.env_builder",
     "terok_agent.headless_providers",
     "terok_agent.instructions",
     "terok_agent.paths",

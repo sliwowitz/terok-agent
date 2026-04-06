@@ -23,7 +23,6 @@ Usage::
 from __future__ import annotations
 
 import logging
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -186,28 +185,15 @@ def _resolve_git_identity(spec: ContainerEnvSpec, roster: AgentRoster) -> dict[s
 def _shared_config_mounts(roster: AgentRoster, mounts_base: Path) -> list[str]:
     """Derive shared volume mounts from the agent roster.
 
-    Iterates auth providers then explicit roster mounts, deduplicating by
-    host directory name.  Creates host directories on demand.
+    Uses ``roster.mounts`` — the already-deduplicated list that merges auth
+    provider mounts and explicit ``mounts:`` YAML sections.  Creates host
+    directories on demand.
     """
-    seen: set[str] = set()
     mounts: list[str] = []
-
-    for _name, ap in sorted(roster.auth_providers.items()):
-        if ap.host_dir_name in seen:
-            continue
-        host_dir = mounts_base / ap.host_dir_name
-        host_dir.mkdir(parents=True, exist_ok=True)
-        mounts.append(f"{host_dir}:{ap.container_mount}:z")
-        seen.add(ap.host_dir_name)
-
     for m in roster.mounts:
-        if m.host_dir in seen:
-            continue
         host_dir = mounts_base / m.host_dir
         host_dir.mkdir(parents=True, exist_ok=True)
         mounts.append(f"{host_dir}:{m.container_path}:z")
-        seen.add(m.host_dir)
-
     return mounts
 
 
@@ -234,10 +220,7 @@ def _inject_proxy_tokens(roster: AgentRoster, scope: str, task_id: str) -> dict[
     try:
         db = CredentialDB(cfg.proxy_db_path)
     except Exception as exc:
-        print(
-            f"Warning [env_builder]: credential proxy DB unavailable: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
+        _logger.warning("Credential proxy DB unavailable: %s: %s", type(exc).__name__, exc)
         return {}
 
     try:
@@ -249,10 +232,13 @@ def _inject_proxy_tokens(roster: AgentRoster, scope: str, task_id: str) -> dict[
         tokens = {
             name: db.create_proxy_token(scope, task_id, credential_set, name) for name in routed
         }
+        port = get_proxy_port(cfg)
+    except Exception as exc:
+        _logger.warning("Credential proxy token injection failed: %s: %s", type(exc).__name__, exc)
+        return {}
     finally:
         db.close()
 
-    port = get_proxy_port(cfg)
     proxy_base = f"http://host.containers.internal:{port}"
     env: dict[str, str] = {}
 
