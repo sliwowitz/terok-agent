@@ -334,6 +334,8 @@ class AgentRunner:
         human_name: str | None = None,
         human_email: str | None = None,
         authorship: str | None = None,
+        shared_dir: Path | None = None,
+        shared_mount: str = "/shared",
     ) -> str:
         """Launch a headless agent run. Returns container name.
 
@@ -359,6 +361,8 @@ class AgentRunner:
             human_name=human_name,
             human_email=human_email,
             authorship=authorship,
+            shared_dir=shared_dir,
+            shared_mount=shared_mount,
         )
 
     def run_interactive(
@@ -375,6 +379,8 @@ class AgentRunner:
         human_name: str | None = None,
         human_email: str | None = None,
         authorship: str | None = None,
+        shared_dir: Path | None = None,
+        shared_mount: str = "/shared",
     ) -> str:
         """Launch an interactive container. Returns container name.
 
@@ -393,6 +399,8 @@ class AgentRunner:
             human_name=human_name,
             human_email=human_email,
             authorship=authorship,
+            shared_dir=shared_dir,
+            shared_mount=shared_mount,
         )
 
     def run_web(
@@ -410,6 +418,8 @@ class AgentRunner:
         human_name: str | None = None,
         human_email: str | None = None,
         authorship: str | None = None,
+        shared_dir: Path | None = None,
+        shared_mount: str = "/shared",
     ) -> str:
         """Launch a toad web container. Returns container name.
 
@@ -434,6 +444,8 @@ class AgentRunner:
             human_name=human_name,
             human_email=human_email,
             authorship=authorship,
+            shared_dir=shared_dir,
+            shared_mount=shared_mount,
         )
 
     def run_tool(
@@ -489,6 +501,8 @@ class AgentRunner:
         human_name: str | None = None,
         human_email: str | None = None,
         authorship: str | None = None,
+        shared_dir: Path | None = None,
+        shared_mount: str = "/shared",
     ) -> str:
         """Unified launch flow for all modes (headless, interactive, web, tool)."""
         from .env_builder import ContainerEnvSpec, assemble_container_env
@@ -575,6 +589,9 @@ class AgentRunner:
                 spec_kwargs["human_email"] = human_email
             if authorship:
                 spec_kwargs["authorship"] = authorship
+            if shared_dir:
+                spec_kwargs["shared_dir"] = shared_dir
+                spec_kwargs["shared_mount"] = shared_mount
 
             result = assemble_container_env(
                 ContainerEnvSpec(**spec_kwargs),

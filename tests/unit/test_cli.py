@@ -8,6 +8,8 @@ from __future__ import annotations
 from io import StringIO
 from unittest.mock import patch
 
+import pytest
+
 from terok_agent.cli import main
 
 
@@ -78,6 +80,28 @@ class TestAgentsCommand:
     def test_unknown_subcommand_exits_nonzero(self) -> None:
         _, _, rc = _run_cli("nonexistent")
         assert rc != 0
+
+
+class TestSharedDirArgs:
+    """Verify --shared-dir and --shared-mount are accepted by the run command."""
+
+    def test_shared_dir_arg_accepted(self) -> None:
+        """--shared-dir is recognized by the argument parser."""
+        from terok_agent.commands import RUN_COMMAND
+
+        arg_names = [a.name for a in RUN_COMMAND.args]
+        assert "--shared-dir" in arg_names
+
+    def test_shared_mount_default(self) -> None:
+        """--shared-mount defaults to /shared."""
+        from terok_agent.commands import RUN_COMMAND
+
+        for a in RUN_COMMAND.args:
+            if a.name == "--shared-mount":
+                assert a.default == "/shared"
+                break
+        else:
+            pytest.fail("--shared-mount not found in RUN_COMMAND args")
 
 
 class TestResolveHostGitIdentity:
