@@ -204,7 +204,6 @@ class TestAgentRunner:
         ):
             runner.run_headless("claude", str(tmp_path), prompt="test", follow=False)
 
-
     def test_shared_dir_in_container_env(self, tmp_path: Path) -> None:
         """shared_dir kwarg produces TEROK_SHARED_DIR and a volume mount."""
         sandbox = _mock_sandbox()
