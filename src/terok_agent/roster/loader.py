@@ -30,11 +30,11 @@ from .config_stack import deep_merge
 if TYPE_CHECKING:
     from terok_sandbox import SandboxConfig
 
-    from .auth import AuthProvider
-    from .headless_providers import HeadlessProvider, OpenCodeProviderConfig
+    from terok_agent.credentials.auth import AuthProvider
+    from terok_agent.provider.headless import HeadlessProvider, OpenCodeProviderConfig
 
 # ---------------------------------------------------------------------------
-# User config root
+# Constants
 # ---------------------------------------------------------------------------
 
 _USER_AGENTS_DIR_NAME = "agents"
@@ -42,7 +42,7 @@ _USER_AGENTS_DIR_NAME = "agents"
 
 def _user_agents_dir() -> Path:
     """Return ``~/.config/terok/agent/agents/``."""
-    from .paths import _SUBDIR, _UMBRELLA
+    from terok_agent.paths import _SUBDIR, _UMBRELLA
 
     try:
         from platformdirs import user_config_dir
@@ -51,190 +51,7 @@ def _user_agents_dir() -> Path:
     return Path(user_config_dir(_UMBRELLA)) / _SUBDIR / _USER_AGENTS_DIR_NAME
 
 
-# ---------------------------------------------------------------------------
-# YAML loading helpers
-# ---------------------------------------------------------------------------
-
-
-def _load_yaml(text: str) -> dict:
-    """Parse YAML text into a dict via ruamel.yaml round-trip loader."""
-    from ._util import yaml_load
-
-    result = yaml_load(text)
-    return result if isinstance(result, dict) else {}
-
-
-def _load_bundled_agents() -> dict[str, dict]:
-    """Load all ``*.yaml`` files from the bundled ``resources/agents/`` package."""
-    agents: dict[str, dict] = {}
-    pkg = importlib.resources.files("terok_agent.resources.agents")
-    for item in pkg.iterdir():
-        if not hasattr(item, "name") or not item.name.endswith(".yaml"):
-            continue
-        name = item.name.removesuffix(".yaml")
-        try:
-            data = _load_yaml(item.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(
-                f"Warning [roster]: failed to parse bundled agent {name!r}: "
-                f"{type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            continue
-        if data:
-            agents[name] = data
-    return agents
-
-
-def _load_user_agents() -> dict[str, dict]:
-    """Load user override/addition YAML files from ``~/.config/terok/agent/agents/``."""
-    agents: dict[str, dict] = {}
-    user_dir = _user_agents_dir()
-    if not user_dir.is_dir():
-        return agents
-    for path in sorted(user_dir.glob("*.yaml")):
-        name = path.stem
-        try:
-            data = _load_yaml(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(
-                f"Warning [roster]: failed to parse user agent file {path}: "
-                f"{type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            continue
-        if data:
-            agents[name] = data
-    return agents
-
-
-# ---------------------------------------------------------------------------
-# Deserialization: YAML dict → dataclass
-# ---------------------------------------------------------------------------
-
-
-def _to_opencode_config(data: dict) -> OpenCodeProviderConfig:
-    """Deserialize the ``opencode:`` YAML section."""
-    from .headless_providers import OpenCodeProviderConfig
-
-    return OpenCodeProviderConfig(
-        display_name=data["display_name"],
-        base_url=data["base_url"],
-        preferred_model=data["preferred_model"],
-        fallback_model=data["fallback_model"],
-        env_var_prefix=data["env_var_prefix"],
-        config_dir=data["config_dir"],
-        auth_key_url=data["auth_key_url"],
-    )
-
-
-def _to_headless_provider(name: str, data: dict) -> HeadlessProvider:
-    """Deserialize a full agent YAML dict into a ``HeadlessProvider``."""
-    from .headless_providers import HeadlessProvider
-
-    hl = data.get("headless", {})
-    aa = data.get("auto_approve", {})
-    sess = data.get("session", {})
-    caps = data.get("capabilities", {})
-    gi = data.get("git_identity", {})
-
-    oc_data = data.get("opencode")
-    oc = _to_opencode_config(oc_data) if oc_data else None
-
-    return HeadlessProvider(
-        name=name,
-        label=data.get("label", name),
-        binary=data.get("binary", name),
-        git_author_name=gi.get("name", name.capitalize()),
-        git_author_email=gi.get("email", f"noreply@{name}.ai"),
-        # Headless command shape
-        headless_subcommand=hl.get("subcommand"),
-        prompt_flag=hl.get("prompt_flag", "-p"),
-        auto_approve_env=aa.get("env", {}),
-        auto_approve_flags=tuple(aa.get("flags", ())),
-        output_format_flags=tuple(hl.get("output_format_flags", ())),
-        model_flag=hl.get("model_flag"),
-        max_turns_flag=hl.get("max_turns_flag"),
-        verbose_flag=hl.get("verbose_flag"),
-        # Session
-        supports_session_resume=sess.get("supports_resume", False),
-        resume_flag=sess.get("resume_flag"),
-        continue_flag=sess.get("continue_flag"),
-        session_file=sess.get("session_file"),
-        supports_agents_json=caps.get("agents_json", False),
-        supports_session_hook=sess.get("supports_hook", False),
-        supports_add_dir=caps.get("add_dir", False),
-        # Log format
-        log_format=caps.get("log_format", "plain"),
-        opencode_config=oc,
-    )
-
-
-def _to_auth_provider(name: str, data: dict) -> AuthProvider | None:
-    """Deserialize the ``auth:`` YAML section into an ``AuthProvider``."""
-    from .auth import AuthKeyConfig, AuthProvider, _api_key_command
-
-    auth = data.get("auth", {})
-    if not auth:
-        return None
-
-    # Determine command: explicit command list, or build from auth_key config.
-    # API-key-only providers may have no command — that's fine.
-    auth_key_data = auth.get("auth_key")
-    if "command" in auth:
-        command = list(auth["command"])
-    elif auth_key_data:
-        command = _api_key_command(
-            AuthKeyConfig(
-                label=auth_key_data.get("label", data.get("label", name)),
-                key_url=auth_key_data["key_url"],
-                env_var=auth_key_data["env_var"],
-                config_path=auth_key_data["config_path"],
-                printf_template=auth_key_data["printf_template"],
-                tool_name=auth_key_data.get("tool_name", name),
-            )
-        )
-    else:
-        command = []
-
-    modes = tuple(auth.get("modes", ("api_key",)))
-
-    return AuthProvider(
-        name=name,
-        label=data.get("label", name),
-        host_dir_name=auth["host_dir"],
-        container_mount=auth["container_mount"],
-        command=command,
-        banner_hint=auth.get("banner_hint", ""),
-        extra_run_args=tuple(auth.get("extra_run_args", ())),
-        modes=modes,
-        api_key_hint=auth.get("api_key_hint", ""),
-    )
-
-
-def _derive_opencode_auth(name: str, data: dict) -> AuthProvider | None:
-    """Auto-derive an auth provider for an OpenCode-based agent."""
-    from .auth import AuthProvider
-
-    oc = data.get("opencode")
-    if not oc:
-        return None
-
-    return AuthProvider(
-        name=name,
-        label=data.get("label", name),
-        host_dir_name=f"_{name}-config",
-        container_mount=f"/home/dev/{oc['config_dir']}",
-        command=[],  # API-key-only — no container command needed
-        banner_hint="",
-        modes=("api_key",),
-        api_key_hint=f"Get your API key at: {oc['auth_key_url']}",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
+# ── Domain model ──────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -305,53 +122,6 @@ class CredentialProxyRoute:
     """OAuth refresh config: ``{token_url, client_id, scope}``."""
 
 
-def _validated_oauth_refresh(name: str, raw: dict | None) -> dict | None:
-    """Validate ``oauth_refresh`` section and return it, or ``None``."""
-    if raw is None:
-        return None
-    for key in ("token_url", "client_id"):
-        if key not in raw:
-            raise ValueError(f"Agent {name!r}: oauth_refresh missing required key {key!r}")
-    return raw
-
-
-def _to_proxy_route(name: str, data: dict) -> CredentialProxyRoute | None:
-    """Parse the ``credential_proxy:`` YAML section into a route config."""
-    cp = data.get("credential_proxy")
-    if not cp:
-        return None
-    if not isinstance(cp, dict):
-        raise ValueError(
-            f"Agent {name!r}: credential_proxy must be a mapping, got {type(cp).__name__}"
-        )
-    for required in ("route_prefix", "upstream"):
-        if required not in cp:
-            raise ValueError(f"Agent {name!r}: credential_proxy missing required key {required!r}")
-    oauth_phantom_env = cp.get("oauth_phantom_env") or {}
-    socket_path = cp.get("socket_path") or ""
-    socket_env = cp.get("socket_env") or ""
-    if bool(socket_path) != bool(socket_env):
-        raise ValueError(
-            f"Agent {name!r}: credential_proxy requires both 'socket_path' and 'socket_env' together"
-        )
-    return CredentialProxyRoute(
-        provider=name,
-        route_prefix=cp["route_prefix"],
-        upstream=cp["upstream"],
-        auth_header=cp.get("auth_header", "Authorization"),
-        auth_prefix=cp.get("auth_prefix", "Bearer "),
-        credential_type=cp.get("credential_type", "api_key"),
-        credential_file=cp.get("credential_file", ""),
-        phantom_env=cp.get("phantom_env", {}),
-        oauth_phantom_env=oauth_phantom_env,
-        base_url_env=cp.get("base_url_env", ""),
-        socket_path=socket_path,
-        socket_env=socket_env,
-        shared_config_patch=cp.get("shared_config_patch"),
-        oauth_refresh=_validated_oauth_refresh(name, cp.get("oauth_refresh")),
-    )
-
-
 @dataclass(frozen=True)
 class SidecarSpec:
     """Sidecar container configuration parsed from a ``sidecar:`` YAML section.
@@ -369,17 +139,6 @@ class SidecarSpec:
     Example: ``{"CODERABBIT_API_KEY": "key"}`` reads ``cred["key"]`` and
     injects it as ``CODERABBIT_API_KEY``.
     """
-
-
-def _to_sidecar_spec(name: str, data: dict) -> SidecarSpec | None:
-    """Parse the optional ``sidecar:`` YAML section into a :class:`SidecarSpec`."""
-    sc = data.get("sidecar")
-    if not sc:
-        return None
-    return SidecarSpec(
-        tool_name=sc.get("tool_name", name),
-        env_map=dict(sc.get("env_map", {})),
-    )
 
 
 @dataclass(frozen=True)
@@ -522,6 +281,15 @@ class AgentRoster:
         return env
 
 
+# ── Public API ────────────────────────────────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def get_roster() -> AgentRoster:
+    """Return the singleton roster instance (loaded once, cached)."""
+    return load_roster()
+
+
 def load_roster() -> AgentRoster:
     """Load the agent roster from bundled YAML + user overrides.
 
@@ -612,12 +380,6 @@ def load_roster() -> AgentRoster:
     )
 
 
-@lru_cache(maxsize=1)
-def get_roster() -> AgentRoster:
-    """Return the singleton roster instance (loaded once, cached)."""
-    return load_roster()
-
-
 def ensure_proxy_routes(cfg: SandboxConfig | None = None) -> Path:
     """Generate ``routes.json`` from the YAML roster and write it to disk.
 
@@ -651,3 +413,238 @@ def ensure_proxy_routes(cfg: SandboxConfig | None = None) -> Path:
         tmp.unlink(missing_ok=True)
         raise
     return path
+
+
+# ── YAML loading ──────────────────────────────────────────────────────────
+
+
+def _load_yaml(text: str) -> dict:
+    """Parse YAML text into a dict via ruamel.yaml round-trip loader."""
+    from terok_agent._util import yaml_load
+
+    result = yaml_load(text)
+    return result if isinstance(result, dict) else {}
+
+
+def _load_bundled_agents() -> dict[str, dict]:
+    """Load all ``*.yaml`` files from the bundled ``resources/agents/`` package."""
+    agents: dict[str, dict] = {}
+    pkg = importlib.resources.files("terok_agent.resources.agents")
+    for item in pkg.iterdir():
+        if not hasattr(item, "name") or not item.name.endswith(".yaml"):
+            continue
+        name = item.name.removesuffix(".yaml")
+        try:
+            data = _load_yaml(item.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(
+                f"Warning [roster]: failed to parse bundled agent {name!r}: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        if data:
+            agents[name] = data
+    return agents
+
+
+def _load_user_agents() -> dict[str, dict]:
+    """Load user override/addition YAML files from ``~/.config/terok/agent/agents/``."""
+    agents: dict[str, dict] = {}
+    user_dir = _user_agents_dir()
+    if not user_dir.is_dir():
+        return agents
+    for path in sorted(user_dir.glob("*.yaml")):
+        name = path.stem
+        try:
+            data = _load_yaml(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(
+                f"Warning [roster]: failed to parse user agent file {path}: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        if data:
+            agents[name] = data
+    return agents
+
+
+# ── Deserialization ───────────────────────────────────────────────────────
+
+
+def _to_opencode_config(data: dict) -> OpenCodeProviderConfig:
+    """Deserialize the ``opencode:`` YAML section."""
+    from terok_agent.provider.headless import OpenCodeProviderConfig
+
+    return OpenCodeProviderConfig(
+        display_name=data["display_name"],
+        base_url=data["base_url"],
+        preferred_model=data["preferred_model"],
+        fallback_model=data["fallback_model"],
+        env_var_prefix=data["env_var_prefix"],
+        config_dir=data["config_dir"],
+        auth_key_url=data["auth_key_url"],
+    )
+
+
+def _to_headless_provider(name: str, data: dict) -> HeadlessProvider:
+    """Deserialize a full agent YAML dict into a ``HeadlessProvider``."""
+    from terok_agent.provider.headless import HeadlessProvider
+
+    hl = data.get("headless", {})
+    aa = data.get("auto_approve", {})
+    sess = data.get("session", {})
+    caps = data.get("capabilities", {})
+    gi = data.get("git_identity", {})
+
+    oc_data = data.get("opencode")
+    oc = _to_opencode_config(oc_data) if oc_data else None
+
+    return HeadlessProvider(
+        name=name,
+        label=data.get("label", name),
+        binary=data.get("binary", name),
+        git_author_name=gi.get("name", name.capitalize()),
+        git_author_email=gi.get("email", f"noreply@{name}.ai"),
+        # Headless command shape
+        headless_subcommand=hl.get("subcommand"),
+        prompt_flag=hl.get("prompt_flag", "-p"),
+        auto_approve_env=aa.get("env", {}),
+        auto_approve_flags=tuple(aa.get("flags", ())),
+        output_format_flags=tuple(hl.get("output_format_flags", ())),
+        model_flag=hl.get("model_flag"),
+        max_turns_flag=hl.get("max_turns_flag"),
+        verbose_flag=hl.get("verbose_flag"),
+        # Session
+        supports_session_resume=sess.get("supports_resume", False),
+        resume_flag=sess.get("resume_flag"),
+        continue_flag=sess.get("continue_flag"),
+        session_file=sess.get("session_file"),
+        supports_agents_json=caps.get("agents_json", False),
+        supports_session_hook=sess.get("supports_hook", False),
+        supports_add_dir=caps.get("add_dir", False),
+        # Log format
+        log_format=caps.get("log_format", "plain"),
+        opencode_config=oc,
+    )
+
+
+def _to_auth_provider(name: str, data: dict) -> AuthProvider | None:
+    """Deserialize the ``auth:`` YAML section into an ``AuthProvider``."""
+    from terok_agent.credentials.auth import AuthKeyConfig, AuthProvider, _api_key_command
+
+    auth = data.get("auth", {})
+    if not auth:
+        return None
+
+    # Determine command: explicit command list, or build from auth_key config.
+    # API-key-only providers may have no command — that's fine.
+    auth_key_data = auth.get("auth_key")
+    if "command" in auth:
+        command = list(auth["command"])
+    elif auth_key_data:
+        command = _api_key_command(
+            AuthKeyConfig(
+                label=auth_key_data.get("label", data.get("label", name)),
+                key_url=auth_key_data["key_url"],
+                env_var=auth_key_data["env_var"],
+                config_path=auth_key_data["config_path"],
+                printf_template=auth_key_data["printf_template"],
+                tool_name=auth_key_data.get("tool_name", name),
+            )
+        )
+    else:
+        command = []
+
+    modes = tuple(auth.get("modes", ("api_key",)))
+
+    return AuthProvider(
+        name=name,
+        label=data.get("label", name),
+        host_dir_name=auth["host_dir"],
+        container_mount=auth["container_mount"],
+        command=command,
+        banner_hint=auth.get("banner_hint", ""),
+        extra_run_args=tuple(auth.get("extra_run_args", ())),
+        modes=modes,
+        api_key_hint=auth.get("api_key_hint", ""),
+    )
+
+
+def _derive_opencode_auth(name: str, data: dict) -> AuthProvider | None:
+    """Auto-derive an auth provider for an OpenCode-based agent."""
+    from terok_agent.credentials.auth import AuthProvider
+
+    oc = data.get("opencode")
+    if not oc:
+        return None
+
+    return AuthProvider(
+        name=name,
+        label=data.get("label", name),
+        host_dir_name=f"_{name}-config",
+        container_mount=f"/home/dev/{oc['config_dir']}",
+        command=[],  # API-key-only — no container command needed
+        banner_hint="",
+        modes=("api_key",),
+        api_key_hint=f"Get your API key at: {oc['auth_key_url']}",
+    )
+
+
+def _validated_oauth_refresh(name: str, raw: dict | None) -> dict | None:
+    """Validate ``oauth_refresh`` section and return it, or ``None``."""
+    if raw is None:
+        return None
+    for key in ("token_url", "client_id"):
+        if key not in raw:
+            raise ValueError(f"Agent {name!r}: oauth_refresh missing required key {key!r}")
+    return raw
+
+
+def _to_proxy_route(name: str, data: dict) -> CredentialProxyRoute | None:
+    """Parse the ``credential_proxy:`` YAML section into a route config."""
+    cp = data.get("credential_proxy")
+    if not cp:
+        return None
+    if not isinstance(cp, dict):
+        raise ValueError(
+            f"Agent {name!r}: credential_proxy must be a mapping, got {type(cp).__name__}"
+        )
+    for required in ("route_prefix", "upstream"):
+        if required not in cp:
+            raise ValueError(f"Agent {name!r}: credential_proxy missing required key {required!r}")
+    oauth_phantom_env = cp.get("oauth_phantom_env") or {}
+    socket_path = cp.get("socket_path") or ""
+    socket_env = cp.get("socket_env") or ""
+    if bool(socket_path) != bool(socket_env):
+        raise ValueError(
+            f"Agent {name!r}: credential_proxy requires both 'socket_path' and 'socket_env' together"
+        )
+    return CredentialProxyRoute(
+        provider=name,
+        route_prefix=cp["route_prefix"],
+        upstream=cp["upstream"],
+        auth_header=cp.get("auth_header", "Authorization"),
+        auth_prefix=cp.get("auth_prefix", "Bearer "),
+        credential_type=cp.get("credential_type", "api_key"),
+        credential_file=cp.get("credential_file", ""),
+        phantom_env=cp.get("phantom_env", {}),
+        oauth_phantom_env=oauth_phantom_env,
+        base_url_env=cp.get("base_url_env", ""),
+        socket_path=socket_path,
+        socket_env=socket_env,
+        shared_config_patch=cp.get("shared_config_patch"),
+        oauth_refresh=_validated_oauth_refresh(name, cp.get("oauth_refresh")),
+    )
+
+
+def _to_sidecar_spec(name: str, data: dict) -> SidecarSpec | None:
+    """Parse the optional ``sidecar:`` YAML section into a :class:`SidecarSpec`."""
+    sc = data.get("sidecar")
+    if not sc:
+        return None
+    return SidecarSpec(
+        tool_name=sc.get("tool_name", name),
+        env_map=dict(sc.get("env_map", {})),
+    )

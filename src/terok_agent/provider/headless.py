@@ -35,6 +35,57 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+# ── Dataclasses / types ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ProviderConfig:
+    """Resolved per-run config for a headless provider.
+
+    Produced by :func:`apply_provider_config` after best-effort feature mapping.
+    """
+
+    model: str | None
+    """Model override for providers that support it, else ``None``."""
+
+    max_turns: int | None
+    """Max turns for providers that support it, else ``None``."""
+
+    timeout: int
+    """Effective timeout in seconds."""
+
+    prompt_extra: str
+    """Extra text to append to the prompt (best-effort feature analogues)."""
+
+    warnings: tuple[str, ...]
+    """Warnings about unsupported features (for user display)."""
+
+
+@dataclass(frozen=True)
+class CLIOverrides:
+    """CLI flag overrides for a headless agent run."""
+
+    model: str | None = None
+    """Explicit ``--model`` from CLI (takes precedence over config)."""
+
+    max_turns: int | None = None
+    """Explicit ``--max-turns`` from CLI."""
+
+    timeout: int | None = None
+    """Explicit ``--timeout`` from CLI."""
+
+    instructions: str | None = None
+    """Resolved instructions text. Delivery is provider-aware."""
+
+
+@dataclass(frozen=True)
+class WrapperConfig:
+    """Groups parameters for generating the Claude shell wrapper."""
+
+    has_agents: bool
+    has_instructions: bool = False
+
+
 @dataclass(frozen=True)
 class OpenCodeProviderConfig:
     """Immutable descriptor for an OpenCode-based provider wrapper."""
@@ -183,6 +234,8 @@ class HeadlessProvider:
         return self.opencode_config is not None or self.name == "opencode"
 
 
+# ── Constants ────────────────────────────────────────────────────────────────
+
 # ---------------------------------------------------------------------------
 # Provider registry — populated from YAML by __init__.py at package load time
 # ---------------------------------------------------------------------------
@@ -192,24 +245,44 @@ HEADLESS_PROVIDERS: dict[str, HeadlessProvider] = {}
 
 PROVIDER_NAMES: tuple[str, ...] = ()
 
+_RESUME_FALLBACK_FN = """\
+# WORKAROUND: stale-session guard (timing-based heuristic).
+#
+# When a user starts an agent, exits immediately (no real interaction),
+# and re-runs, the captured session ID points to a conversation that was
+# never persisted.  The agent then fails with "No conversation found".
+#
+# This is a best-effort mitigation, not a proper fix: we assume that
+# any non-zero exit within 2 seconds of launch is a stale-session error
+# and retry without --resume.  This heuristic can misfire (e.g. a fast
+# config error would also trigger a retry), but the retry is harmless —
+# it just runs without resume, which is the correct fallback anyway.
+#
+# A proper fix would validate the session ID against the agent's storage
+# before injecting --resume, but that requires agent-specific probes
+# that don't exist yet.
+_terok_resume_or_fresh() {
+    local _session_file="$1" _resume_flag="$2"; shift 2
+    local _start; _start=$(date +%s)
+    "$@"; local _rc=$?
+    local _elapsed=$(( $(date +%s) - _start ))
+    if [ $_rc -ne 0 ] && [ $_elapsed -lt 2 ] && [ -s "$_session_file" ]; then
+        echo "terok: session not found (stale?), retrying without resume" >&2
+        rm -f "$_session_file"
+        local _retry=() _skip=false
+        for _a in "$@"; do
+            if $_skip; then _skip=false; continue; fi
+            if [ "$_a" = "$_resume_flag" ]; then _skip=true; continue; fi
+            _retry+=("$_a")
+        done
+        "${_retry[@]}"; _rc=$?
+    fi
+    return $_rc
+}
+"""
 
-def collect_all_auto_approve_env() -> dict[str, str]:
-    """Collect ``auto_approve_env`` from all providers into one dict.
 
-    Used by task runners to inject these env vars at the container level
-    (not just inside shell wrappers) so that ACP-spawned agents also
-    inherit unrestricted permissions.
-    """
-    merged: dict[str, str] = {}
-    for p in HEADLESS_PROVIDERS.values():
-        for key, value in p.auto_approve_env.items():
-            if key in merged and merged[key] != value:
-                raise ValueError(
-                    f"Conflicting auto_approve_env for {key!r}: "
-                    f"{merged[key]!r} vs {value!r} (provider {p.name!r})"
-                )
-            merged[key] = value
-    return merged
+# ── Public API ───────────────────────────────────────────────────────────────
 
 
 def get_provider(name: str | None, *, default_agent: str | None = None) -> HeadlessProvider:
@@ -230,54 +303,6 @@ def get_provider(name: str | None, *, default_agent: str | None = None) -> Headl
     return provider
 
 
-@dataclass(frozen=True)
-class ProviderConfig:
-    """Resolved per-run config for a headless provider.
-
-    Produced by :func:`apply_provider_config` after best-effort feature mapping.
-    """
-
-    model: str | None
-    """Model override for providers that support it, else ``None``."""
-
-    max_turns: int | None
-    """Max turns for providers that support it, else ``None``."""
-
-    timeout: int
-    """Effective timeout in seconds."""
-
-    prompt_extra: str
-    """Extra text to append to the prompt (best-effort feature analogues)."""
-
-    warnings: tuple[str, ...]
-    """Warnings about unsupported features (for user display)."""
-
-
-@dataclass(frozen=True)
-class CLIOverrides:
-    """CLI flag overrides for a headless agent run."""
-
-    model: str | None = None
-    """Explicit ``--model`` from CLI (takes precedence over config)."""
-
-    max_turns: int | None = None
-    """Explicit ``--max-turns`` from CLI."""
-
-    timeout: int | None = None
-    """Explicit ``--timeout`` from CLI."""
-
-    instructions: str | None = None
-    """Resolved instructions text. Delivery is provider-aware."""
-
-
-@dataclass(frozen=True)
-class WrapperConfig:
-    """Groups parameters for generating the Claude shell wrapper."""
-
-    has_agents: bool
-    has_instructions: bool = False
-
-
 def apply_provider_config(
     provider: HeadlessProvider,
     config: dict,
@@ -296,7 +321,7 @@ def apply_provider_config(
     """
     if overrides is None:
         overrides = CLIOverrides()
-    from .agent_config import resolve_provider_value
+    from .config import resolve_provider_value
 
     warnings: list[str] = []
     prompt_parts: list[str] = []
@@ -383,6 +408,104 @@ def build_headless_command(
     return _build_generic_command(provider, timeout=timeout, model=model, max_turns=max_turns)
 
 
+def collect_all_auto_approve_env() -> dict[str, str]:
+    """Collect ``auto_approve_env`` from all providers into one dict.
+
+    Used by task runners to inject these env vars at the container level
+    (not just inside shell wrappers) so that ACP-spawned agents also
+    inherit unrestricted permissions.
+    """
+    merged: dict[str, str] = {}
+    for p in HEADLESS_PROVIDERS.values():
+        for key, value in p.auto_approve_env.items():
+            if key in merged and merged[key] != value:
+                raise ValueError(
+                    f"Conflicting auto_approve_env for {key!r}: "
+                    f"{merged[key]!r} vs {value!r} (provider {p.name!r})"
+                )
+            merged[key] = value
+    return merged
+
+
+def collect_opencode_provider_env() -> dict[str, str]:
+    """Collect environment variables for all OpenCode-based providers.
+
+    Returns a dictionary of environment variables that will be injected into containers
+    to configure OpenCode-based providers. Each provider with opencode_config set
+    contributes variables prefixed with TEROK_OC_{PROVIDER_NAME}_*.
+    """
+    env: dict[str, str] = {}
+    for provider in HEADLESS_PROVIDERS.values():
+        if provider.opencode_config is not None:
+            env.update(provider.opencode_config.to_env(provider.name))
+    return env
+
+
+def generate_agent_wrapper(
+    provider: HeadlessProvider,
+    has_agents: bool,
+    *,
+    claude_wrapper_fn: Callable[[WrapperConfig], str] | None = None,
+) -> str:
+    """Generate the shell wrapper function content for a single provider.
+
+    For Claude, uses *claude_wrapper_fn* (which should be
+    ``agents._generate_claude_wrapper``) to produce the full wrapper with
+    ``--add-dir /``, ``--agents``, and session resume support.  The function is passed in by the caller to
+    avoid a circular import between this module and ``agents``.
+
+    For other providers, produces a simpler wrapper that sets git env vars
+    and delegates to the binary.  Instructions are delivered via
+    ``opencode.json`` (OpenCode/Blablador), ``model_instructions_file``
+    (Codex), or ``--append-system-prompt`` (Claude) — not via the wrapper.
+
+    Args:
+        claude_wrapper_fn: ``(cfg: WrapperConfig) -> str``.
+            Required when ``provider.name == "claude"``.
+
+    See also :func:`generate_all_wrappers` which produces wrappers for every
+    registered provider in one file.
+    """
+    if provider.name == "claude":
+        if claude_wrapper_fn is None:
+            raise ValueError("claude_wrapper_fn is required for Claude provider")
+        return claude_wrapper_fn(WrapperConfig(has_agents=has_agents))
+
+    return _generate_generic_wrapper(provider)
+
+
+def generate_all_wrappers(
+    has_agents: bool,
+    *,
+    claude_wrapper_fn: Callable[[WrapperConfig], str] | None = None,
+) -> str:
+    """Generate shell wrappers for **all** registered providers in one file.
+
+    The output file contains a shell function per provider (``claude()``,
+    ``codex()``, ``vibe()``, etc.), each with correct git env vars, timeout
+    support, and session resume logic.  This allows interactive CLI users to
+    invoke any agent regardless of which provider was configured as default.
+
+    A shared ``_terok_resume_or_fresh`` helper is emitted at the top of the
+    file for stale-session fallback (see :data:`_RESUME_FALLBACK_FN`).
+
+    Args:
+        claude_wrapper_fn: Required — produces the Claude wrapper.
+    """
+    sections: list[str] = [_RESUME_FALLBACK_FN]
+    for provider in HEADLESS_PROVIDERS.values():
+        section = generate_agent_wrapper(
+            provider,
+            has_agents,
+            claude_wrapper_fn=claude_wrapper_fn,
+        )
+        sections.append(section)
+    return "\n".join(sections)
+
+
+# ── Private helpers ──────────────────────────────────────────────────────────
+
+
 def _build_claude_command(
     provider: HeadlessProvider,
     *,
@@ -461,105 +584,6 @@ def _build_generic_command(
     parts.append('"$(cat /home/dev/.terok/prompt.txt)"')
 
     return " ".join(parts)
-
-
-def generate_agent_wrapper(
-    provider: HeadlessProvider,
-    has_agents: bool,
-    *,
-    claude_wrapper_fn: Callable[[WrapperConfig], str] | None = None,
-) -> str:
-    """Generate the shell wrapper function content for a single provider.
-
-    For Claude, uses *claude_wrapper_fn* (which should be
-    ``agents._generate_claude_wrapper``) to produce the full wrapper with
-    ``--add-dir /``, ``--agents``, and session resume support.  The function is passed in by the caller to
-    avoid a circular import between this module and ``agents``.
-
-    For other providers, produces a simpler wrapper that sets git env vars
-    and delegates to the binary.  Instructions are delivered via
-    ``opencode.json`` (OpenCode/Blablador), ``model_instructions_file``
-    (Codex), or ``--append-system-prompt`` (Claude) — not via the wrapper.
-
-    Args:
-        claude_wrapper_fn: ``(cfg: WrapperConfig) -> str``.
-            Required when ``provider.name == "claude"``.
-
-    See also :func:`generate_all_wrappers` which produces wrappers for every
-    registered provider in one file.
-    """
-    if provider.name == "claude":
-        if claude_wrapper_fn is None:
-            raise ValueError("claude_wrapper_fn is required for Claude provider")
-        return claude_wrapper_fn(WrapperConfig(has_agents=has_agents))
-
-    return _generate_generic_wrapper(provider)
-
-
-_RESUME_FALLBACK_FN = """\
-# WORKAROUND: stale-session guard (timing-based heuristic).
-#
-# When a user starts an agent, exits immediately (no real interaction),
-# and re-runs, the captured session ID points to a conversation that was
-# never persisted.  The agent then fails with "No conversation found".
-#
-# This is a best-effort mitigation, not a proper fix: we assume that
-# any non-zero exit within 2 seconds of launch is a stale-session error
-# and retry without --resume.  This heuristic can misfire (e.g. a fast
-# config error would also trigger a retry), but the retry is harmless —
-# it just runs without resume, which is the correct fallback anyway.
-#
-# A proper fix would validate the session ID against the agent's storage
-# before injecting --resume, but that requires agent-specific probes
-# that don't exist yet.
-_terok_resume_or_fresh() {
-    local _session_file="$1" _resume_flag="$2"; shift 2
-    local _start; _start=$(date +%s)
-    "$@"; local _rc=$?
-    local _elapsed=$(( $(date +%s) - _start ))
-    if [ $_rc -ne 0 ] && [ $_elapsed -lt 2 ] && [ -s "$_session_file" ]; then
-        echo "terok: session not found (stale?), retrying without resume" >&2
-        rm -f "$_session_file"
-        local _retry=() _skip=false
-        for _a in "$@"; do
-            if $_skip; then _skip=false; continue; fi
-            if [ "$_a" = "$_resume_flag" ]; then _skip=true; continue; fi
-            _retry+=("$_a")
-        done
-        "${_retry[@]}"; _rc=$?
-    fi
-    return $_rc
-}
-"""
-
-
-def generate_all_wrappers(
-    has_agents: bool,
-    *,
-    claude_wrapper_fn: Callable[[WrapperConfig], str] | None = None,
-) -> str:
-    """Generate shell wrappers for **all** registered providers in one file.
-
-    The output file contains a shell function per provider (``claude()``,
-    ``codex()``, ``vibe()``, etc.), each with correct git env vars, timeout
-    support, and session resume logic.  This allows interactive CLI users to
-    invoke any agent regardless of which provider was configured as default.
-
-    A shared ``_terok_resume_or_fresh`` helper is emitted at the top of the
-    file for stale-session fallback (see :data:`_RESUME_FALLBACK_FN`).
-
-    Args:
-        claude_wrapper_fn: Required — produces the Claude wrapper.
-    """
-    sections: list[str] = [_RESUME_FALLBACK_FN]
-    for provider in HEADLESS_PROVIDERS.values():
-        section = generate_agent_wrapper(
-            provider,
-            has_agents,
-            claude_wrapper_fn=claude_wrapper_fn,
-        )
-        sections.append(section)
-    return "\n".join(sections)
 
 
 def _auto_approve_block(provider: HeadlessProvider) -> list[str]:
@@ -729,17 +753,3 @@ def _generate_generic_wrapper(provider: HeadlessProvider) -> str:
     lines.append("}")
 
     return "\n".join(lines) + "\n"
-
-
-def collect_opencode_provider_env() -> dict[str, str]:
-    """Collect environment variables for all OpenCode-based providers.
-
-    Returns a dictionary of environment variables that will be injected into containers
-    to configure OpenCode-based providers. Each provider with opencode_config set
-    contributes variables prefixed with TEROK_OC_{PROVIDER_NAME}_*.
-    """
-    env: dict[str, str] = {}
-    for provider in HEADLESS_PROVIDERS.values():
-        if provider.opencode_config is not None:
-            env.update(provider.opencode_config.to_env(provider.name))
-    return env

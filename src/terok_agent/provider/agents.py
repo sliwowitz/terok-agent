@@ -15,13 +15,165 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._util import ensure_dir, ensure_dir_writable, yaml_load as _yaml_load
-from .headless_providers import WrapperConfig
+from terok_agent._util import ensure_dir, ensure_dir_writable, yaml_load as _yaml_load
+
+from .headless import WrapperConfig
 
 # TODO: future — support global agent definitions in terok-config.yml (agent.subagents).
 # When implemented, global subagents would be merged with per-project subagents before
 # filtering by default/selected. Use a generic merge approach that can be reused across
 # different agent runtimes (Claude, Codex, OpenCode, etc.).
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# All native Claude agent fields to pass through to --agents JSON.
+_CLAUDE_AGENT_FIELDS = frozenset(
+    {
+        "description",
+        "tools",
+        "disallowedTools",
+        "model",
+        "permissionMode",
+        "mcpServers",
+        "hooks",
+        "maxTurns",
+        "skills",
+        "memory",
+        "background",
+        "isolation",
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Dataclasses / types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AgentConfigSpec:
+    """Groups parameters for preparing an agent-config directory."""
+
+    tasks_root: Path
+    task_id: str
+    subagents: tuple[dict, ...]
+    selected_agents: tuple[str, ...] | None = None
+    prompt: str | None = None
+    provider: str = "claude"
+    instructions: str | None = None
+    default_agent: str | None = None
+    mounts_base: Path | None = None
+
+    def __post_init__(self) -> None:
+        """Coerce mutable sequences to tuples for true immutability."""
+        if isinstance(self.subagents, list):
+            object.__setattr__(self, "subagents", tuple(self.subagents))
+        if isinstance(self.selected_agents, list):
+            object.__setattr__(self, "selected_agents", tuple(self.selected_agents))
+
+
+# ---------------------------------------------------------------------------
+# Public entry points
+# ---------------------------------------------------------------------------
+
+
+def prepare_agent_config_dir(spec: AgentConfigSpec) -> Path:
+    """Create and populate the agent-config directory for a task.
+
+    Writes:
+    - terok-agent.sh (always) — wrapper functions with git env vars
+    - agents.json (only when provider supports it and sub-agents are non-empty)
+    - prompt.txt (if prompt given, headless only)
+    - instructions.md (always) — custom instructions or a neutral default
+    - <envs>/_claude-config/settings.json — SessionStart hook (Claude only)
+    - opencode.json entries — ``instructions`` path injected into shared
+      OpenCode and Blablador configs
+
+    Args:
+        spec: All agent-config parameters bundled in an :class:`AgentConfigSpec`.
+
+    Returns the agent_config_dir path.
+    """
+    from .headless import get_provider as _get_provider
+
+    resolved = _get_provider(spec.provider, default_agent=spec.default_agent)
+
+    task_dir = spec.tasks_root / str(spec.task_id)
+    agent_config_dir = task_dir / "agent-config"
+    ensure_dir(agent_config_dir)
+
+    # Build agents JSON — only for providers that support --agents (Claude)
+    has_agents = False
+    if resolved.supports_agents_json and spec.subagents:
+        agents_json = _subagents_to_json(spec.subagents, spec.selected_agents)
+        agents_dict = json.loads(agents_json)
+        if agents_dict:  # non-empty dict
+            (agent_config_dir / "agents.json").write_text(agents_json, encoding="utf-8")
+            has_agents = True
+    elif spec.subagents or spec.selected_agents:
+        import warnings
+
+        warnings.warn(
+            f"{resolved.label} does not support sub-agents (--agents); "
+            f"sub-agent definitions will be ignored.",
+            stacklevel=2,
+        )
+
+    # Write instructions file — always present so opencode.json `instructions`
+    # references never point to a missing file.  When no custom instructions
+    # are configured, a neutral default is used.
+    _DEFAULT_INSTRUCTIONS = "Follow the project's coding conventions and existing patterns."
+
+    has_instructions = bool(spec.instructions)
+    instructions_text = spec.instructions or _DEFAULT_INSTRUCTIONS
+    (agent_config_dir / "instructions.md").write_text(instructions_text, encoding="utf-8")
+
+    # Inject instructions path into opencode.json configs on the host so
+    # all OpenCode-based providers discover them natively (works for both
+    # interactive and headless modes).
+    from .headless import HEADLESS_PROVIDERS
+
+    mounts_base = spec.mounts_base
+    if mounts_base is None:
+        raise ValueError("mounts_base is required in AgentConfigSpec")
+    _inject_opencode_instructions(mounts_base / "_opencode-config" / "opencode.json")
+    for _p in HEADLESS_PROVIDERS.values():
+        if _p.opencode_config is not None:
+            _inject_opencode_instructions(
+                mounts_base / f"_{_p.name}-config" / "opencode" / "opencode.json"
+            )
+
+    # Write shell wrapper functions for ALL providers so interactive CLI users
+    # can invoke any agent (each provider gets its own shell function).
+    from .headless import generate_all_wrappers
+
+    def _claude_wrapper_with_instructions(cfg: WrapperConfig) -> str:
+        """Wrap _generate_claude_wrapper with the resolved has_instructions flag."""
+        return _generate_claude_wrapper(
+            WrapperConfig(
+                has_agents=cfg.has_agents,
+                has_instructions=has_instructions,
+            )
+        )
+
+    wrapper = generate_all_wrappers(
+        has_agents,
+        claude_wrapper_fn=_claude_wrapper_with_instructions,
+    )
+    (agent_config_dir / "terok-agent.sh").write_text(wrapper, encoding="utf-8")
+
+    # Write SessionStart hook — only for providers that support it (Claude)
+    if resolved.supports_session_hook:
+        shared_claude_dir = mounts_base / "_claude-config"
+        ensure_dir_writable(shared_claude_dir, "_claude-config")
+        _write_session_hook(shared_claude_dir / "settings.json")
+
+    # Prompt (headless only)
+    if spec.prompt is not None:
+        (agent_config_dir / "prompt.txt").write_text(spec.prompt, encoding="utf-8")
+
+    return agent_config_dir
 
 
 def parse_md_agent(file_path: str) -> dict:
@@ -54,23 +206,9 @@ def parse_md_agent(file_path: str) -> dict:
     return {"prompt": content.strip()}
 
 
-# All native Claude agent fields to pass through to --agents JSON.
-_CLAUDE_AGENT_FIELDS = frozenset(
-    {
-        "description",
-        "tools",
-        "disallowedTools",
-        "model",
-        "permissionMode",
-        "mcpServers",
-        "hooks",
-        "maxTurns",
-        "skills",
-        "memory",
-        "background",
-        "isolation",
-    }
-)
+# ---------------------------------------------------------------------------
+# Private helpers (in call order)
+# ---------------------------------------------------------------------------
 
 
 def _subagents_to_json(
@@ -391,123 +529,3 @@ def _inject_opencode_instructions(config_path: Path) -> None:
         finally:
             if fcntl is not None:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-@dataclass(frozen=True)
-class AgentConfigSpec:
-    """Groups parameters for preparing an agent-config directory."""
-
-    tasks_root: Path
-    task_id: str
-    subagents: tuple[dict, ...]
-    selected_agents: tuple[str, ...] | None = None
-    prompt: str | None = None
-    provider: str = "claude"
-    instructions: str | None = None
-    default_agent: str | None = None
-    mounts_base: Path | None = None
-
-    def __post_init__(self) -> None:
-        """Coerce mutable sequences to tuples for true immutability."""
-        if isinstance(self.subagents, list):
-            object.__setattr__(self, "subagents", tuple(self.subagents))
-        if isinstance(self.selected_agents, list):
-            object.__setattr__(self, "selected_agents", tuple(self.selected_agents))
-
-
-def prepare_agent_config_dir(spec: AgentConfigSpec) -> Path:
-    """Create and populate the agent-config directory for a task.
-
-    Writes:
-    - terok-agent.sh (always) — wrapper functions with git env vars
-    - agents.json (only when provider supports it and sub-agents are non-empty)
-    - prompt.txt (if prompt given, headless only)
-    - instructions.md (always) — custom instructions or a neutral default
-    - <envs>/_claude-config/settings.json — SessionStart hook (Claude only)
-    - opencode.json entries — ``instructions`` path injected into shared
-      OpenCode and Blablador configs
-
-    Args:
-        spec: All agent-config parameters bundled in an :class:`AgentConfigSpec`.
-
-    Returns the agent_config_dir path.
-    """
-    from .headless_providers import get_provider as _get_provider
-
-    resolved = _get_provider(spec.provider, default_agent=spec.default_agent)
-
-    task_dir = spec.tasks_root / str(spec.task_id)
-    agent_config_dir = task_dir / "agent-config"
-    ensure_dir(agent_config_dir)
-
-    # Build agents JSON — only for providers that support --agents (Claude)
-    has_agents = False
-    if resolved.supports_agents_json and spec.subagents:
-        agents_json = _subagents_to_json(spec.subagents, spec.selected_agents)
-        agents_dict = json.loads(agents_json)
-        if agents_dict:  # non-empty dict
-            (agent_config_dir / "agents.json").write_text(agents_json, encoding="utf-8")
-            has_agents = True
-    elif spec.subagents or spec.selected_agents:
-        import warnings
-
-        warnings.warn(
-            f"{resolved.label} does not support sub-agents (--agents); "
-            f"sub-agent definitions will be ignored.",
-            stacklevel=2,
-        )
-
-    # Write instructions file — always present so opencode.json `instructions`
-    # references never point to a missing file.  When no custom instructions
-    # are configured, a neutral default is used.
-    _DEFAULT_INSTRUCTIONS = "Follow the project's coding conventions and existing patterns."
-
-    has_instructions = bool(spec.instructions)
-    instructions_text = spec.instructions or _DEFAULT_INSTRUCTIONS
-    (agent_config_dir / "instructions.md").write_text(instructions_text, encoding="utf-8")
-
-    # Inject instructions path into opencode.json configs on the host so
-    # all OpenCode-based providers discover them natively (works for both
-    # interactive and headless modes).
-    from .headless_providers import HEADLESS_PROVIDERS
-
-    mounts_base = spec.mounts_base
-    if mounts_base is None:
-        raise ValueError("mounts_base is required in AgentConfigSpec")
-    _inject_opencode_instructions(mounts_base / "_opencode-config" / "opencode.json")
-    for _p in HEADLESS_PROVIDERS.values():
-        if _p.opencode_config is not None:
-            _inject_opencode_instructions(
-                mounts_base / f"_{_p.name}-config" / "opencode" / "opencode.json"
-            )
-
-    # Write shell wrapper functions for ALL providers so interactive CLI users
-    # can invoke any agent (each provider gets its own shell function).
-    from .headless_providers import generate_all_wrappers
-
-    def _claude_wrapper_with_instructions(cfg: WrapperConfig) -> str:
-        """Wrap _generate_claude_wrapper with the resolved has_instructions flag."""
-        return _generate_claude_wrapper(
-            WrapperConfig(
-                has_agents=cfg.has_agents,
-                has_instructions=has_instructions,
-            )
-        )
-
-    wrapper = generate_all_wrappers(
-        has_agents,
-        claude_wrapper_fn=_claude_wrapper_with_instructions,
-    )
-    (agent_config_dir / "terok-agent.sh").write_text(wrapper, encoding="utf-8")
-
-    # Write SessionStart hook — only for providers that support it (Claude)
-    if resolved.supports_session_hook:
-        shared_claude_dir = mounts_base / "_claude-config"
-        ensure_dir_writable(shared_claude_dir, "_claude-config")
-        _write_session_hook(shared_claude_dir / "settings.json")
-
-    # Prompt (headless only)
-    if spec.prompt is not None:
-        (agent_config_dir / "prompt.txt").write_text(spec.prompt, encoding="utf-8")
-
-    return agent_config_dir
