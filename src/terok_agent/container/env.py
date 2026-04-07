@@ -10,7 +10,7 @@ the canonical assembly function so that logic lives in one place.
 
 Usage::
 
-    from terok_agent.env_builder import ContainerEnvSpec, assemble_container_env
+    from terok_agent.container.env import ContainerEnvSpec, assemble_container_env
     from terok_agent import get_roster
 
     result = assemble_container_env(

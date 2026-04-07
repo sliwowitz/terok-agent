@@ -188,7 +188,7 @@ class TestScanLeakedCredentials:
         mock_route.credential_file = ""
         mock_roster.proxy_routes = {"fake-provider": mock_route}
         mock_roster.auth_providers = {"fake-provider": MagicMock(host_dir_name="_fake")}
-        monkeypatch.setattr("terok_agent.roster.get_roster", lambda: mock_roster)
+        monkeypatch.setattr("terok_agent.roster.loader.get_roster", lambda: mock_roster)
 
         assert scan_leaked_credentials(tmp_path) == []
 

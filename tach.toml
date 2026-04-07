@@ -12,7 +12,7 @@ exact = true
 forbid_circular_dependencies = true
 ignore_type_checking_imports = true
 
-# ── Module Boundaries ─────���─────────────────────────────────────────
+# ── Module Boundaries ───────────────────────────────────────────────
 #
 # Four domain packages + foundation + CLI surface:
 #   roster/      — agent catalog (YAML loading, config resolution)
@@ -37,7 +37,7 @@ depends_on = []
 path = "terok_agent.resources"
 depends_on = []
 
-# ── roster/ — agent catalog ────────���────────────────────────────────
+# ── roster/ — agent catalog ─────────────────────────────────────────
 
 # Generic layered config resolution
 [[modules]]
@@ -64,7 +64,7 @@ depends_on = [
     "terok_agent.roster.loader",
 ]
 
-# ── provider/ — AI provider behavior ──────────���─────────────────────
+# ── provider/ — AI provider behavior ────────────────────────────────
 
 # Provider-aware config value extraction
 [[modules]]
@@ -152,7 +152,7 @@ depends_on = [
     "terok_agent.roster.loader",
 ]
 
-# ── CLI surface ─────────────────────────────��───────────────────────
+# ── CLI surface ────────────────────────────────────────────────────
 
 # Command registry — defines all CLI commands
 [[modules]]
