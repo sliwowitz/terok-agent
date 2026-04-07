@@ -103,15 +103,9 @@ def build_base_images(
 
     Raises:
         BuildError: If podman is missing or a build step fails.
-        ValueError: If *build_dir* exists and is non-empty.
+        ValueError: If *build_dir* is a file or a non-empty directory.
     """
-    # Validate arguments before any side effects (podman probe, temp dirs)
-    if build_dir is not None:
-        if build_dir.is_file():
-            raise ValueError(f"build_dir is a file, not a directory: {build_dir}")
-        if build_dir.exists() and any(build_dir.iterdir()):
-            raise ValueError(f"build_dir must be empty or absent: {build_dir}")
-
+    _validate_build_dir(build_dir)
     _check_podman()
 
     base_image = _normalize_base_image(base_image)
@@ -199,14 +193,9 @@ def build_sidecar_image(
 
     Raises:
         BuildError: If podman is missing or a build step fails.
-        ValueError: If *build_dir* exists and is non-empty.
+        ValueError: If *build_dir* is a file or a non-empty directory.
     """
-    if build_dir is not None:
-        if build_dir.is_file():
-            raise ValueError(f"build_dir is a file, not a directory: {build_dir}")
-        if build_dir.exists() and any(build_dir.iterdir()):
-            raise ValueError(f"build_dir must be empty or absent: {build_dir}")
-
+    _validate_build_dir(build_dir)
     _check_podman()
 
     base_image = _normalize_base_image(base_image)
@@ -377,6 +366,16 @@ def l1_sidecar_image_tag(base_image: str) -> str:
 
 
 # ── Private helpers ──
+
+
+def _validate_build_dir(build_dir: Path | None) -> None:
+    """Reject *build_dir* if it is a file or a non-empty directory."""
+    if build_dir is None:
+        return
+    if build_dir.is_file():
+        raise ValueError(f"build_dir is a file, not a directory: {build_dir}")
+    if build_dir.exists() and any(build_dir.iterdir()):
+        raise ValueError(f"build_dir must be empty or absent: {build_dir}")
 
 
 def _normalize_base_image(base_image: str | None) -> str:
