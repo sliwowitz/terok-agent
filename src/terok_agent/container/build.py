@@ -21,7 +21,7 @@ build needed.  terok adds L2 only for project-specific image customisation.
 
 Usage as a library::
 
-    from terok_agent.build import build_base_images
+    from terok_agent import build_base_images
 
     images = build_base_images("ubuntu:24.04")
     # images.l0 = "terok-l0:ubuntu-24.04"
@@ -199,7 +199,14 @@ def build_sidecar_image(
 
     Raises:
         BuildError: If podman is missing or a build step fails.
+        ValueError: If *build_dir* exists and is non-empty.
     """
+    if build_dir is not None:
+        if build_dir.is_file():
+            raise ValueError(f"build_dir is a file, not a directory: {build_dir}")
+        if build_dir.exists() and any(build_dir.iterdir()):
+            raise ValueError(f"build_dir must be empty or absent: {build_dir}")
+
     _check_podman()
 
     base_image = _normalize_base_image(base_image)

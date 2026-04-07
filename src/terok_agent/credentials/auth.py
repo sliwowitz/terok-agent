@@ -4,9 +4,17 @@
 
 """Authenticates AI coding agents via OAuth or API key.
 
-Provides a data-driven registry of auth providers (``AUTH_PROVIDERS``) and a
-single entry point ``authenticate(project_id, provider)`` that runs the
-appropriate flow inside a temporary L2 CLI container.
+Two public entry points:
+
+- ``authenticate(project_id, provider, *, mounts_dir, image)`` — dispatches
+  based on the provider's ``modes`` field: prompts for an API key (no
+  container) or launches an auth container with the vendor CLI.
+- ``store_api_key(provider, api_key)`` — stores an API key directly in the
+  credential DB (non-interactive fast path for CI).
+
+``AUTH_PROVIDERS`` is a registry dict populated from the YAML roster at
+package load time; ``authenticate`` looks up the provider by name and
+delegates to the matching flow.
 """
 
 from __future__ import annotations
@@ -252,7 +260,7 @@ def _run_auth_container(
             return
 
         # Extract credentials from the temp dir and store in DB
-        _capture_credentials(provider.name, host_dir, credential_set)
+        _capture_credentials(provider.name, host_dir, credential_set, mounts_base=mounts_dir)
 
 
 def _check_podman() -> None:
