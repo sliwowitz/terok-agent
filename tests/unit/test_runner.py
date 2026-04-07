@@ -204,6 +204,78 @@ class TestAgentRunner:
         ):
             runner.run_headless("claude", str(tmp_path), prompt="test", follow=False)
 
+    def test_shared_mount_must_be_absolute(self, tmp_path: Path) -> None:
+        """Relative shared_mount is rejected with SystemExit."""
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+        with (
+            patch.object(runner, "_ensure_images", return_value="terok-l1-cli:test"),
+            pytest.raises(SystemExit, match="absolute path"),
+        ):
+            runner.run_headless(
+                "claude",
+                str(tmp_path),
+                prompt="test",
+                follow=False,
+                shared_dir=tmp_path / "ipc",
+                shared_mount="relative/path",
+            )
+
+    def test_shared_mount_rejects_colon(self, tmp_path: Path) -> None:
+        """shared_mount containing ':' is rejected (volume spec injection)."""
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+        with (
+            patch.object(runner, "_ensure_images", return_value="terok-l1-cli:test"),
+            pytest.raises(SystemExit, match="':'"),
+        ):
+            runner.run_headless(
+                "claude",
+                str(tmp_path),
+                prompt="test",
+                follow=False,
+                shared_dir=tmp_path / "ipc",
+                shared_mount="/data:ro",
+            )
+
+    def test_shared_dir_file_rejected(self, tmp_path: Path) -> None:
+        """shared_dir that exists as a file is rejected."""
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+        existing_file = tmp_path / "not-a-dir"
+        existing_file.touch()
+        with (
+            patch.object(runner, "_ensure_images", return_value="terok-l1-cli:test"),
+            pytest.raises(SystemExit, match="exists as a file"),
+        ):
+            runner.run_headless(
+                "claude",
+                str(tmp_path),
+                prompt="test",
+                follow=False,
+                shared_dir=existing_file,
+            )
+
+    def test_shared_dir_in_container_env(self, tmp_path: Path) -> None:
+        """shared_dir kwarg produces TEROK_SHARED_DIR and a volume mount."""
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+
+        shared = tmp_path / "ipc"
+        with patch.object(runner, "_ensure_images", return_value="terok-l1-cli:test"):
+            runner.run_headless(
+                "claude",
+                str(tmp_path),
+                prompt="test",
+                follow=False,
+                shared_dir=shared,
+                shared_mount="/data",
+            )
+
+        spec = sandbox.run.call_args[0][0]
+        assert spec.env["TEROK_SHARED_DIR"] == "/data"
+        assert any(f"{shared}:/data:z" in v for v in spec.volumes)
+
 
 class TestGateIntegration:
     """Verify gate wiring in AgentRunner."""

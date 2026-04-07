@@ -11,6 +11,7 @@ Follows the same :class:`CommandDef` / :class:`ArgDef` pattern as
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -143,6 +144,8 @@ def _handle_run(
     restricted: bool = False,
     gpu: bool = False,
     git_identity_from_host: bool = False,
+    shared_dir: str | None = None,
+    shared_mount: str = "/shared",
 ) -> None:
     """Run an agent in a hardened container."""
     from .runner import AgentRunner
@@ -159,6 +162,7 @@ def _handle_run(
 
     effective_gate = gate and not no_gate
     runner = AgentRunner()
+    resolved_shared_dir = Path(shared_dir) if shared_dir else None
     common: dict = {
         "gate": effective_gate,
         "name": name,
@@ -168,7 +172,10 @@ def _handle_run(
         "human_name": human_name,
         "human_email": human_email,
         "authorship": authorship,
+        "shared_dir": resolved_shared_dir,
     }
+    if resolved_shared_dir:
+        common["shared_mount"] = shared_mount
 
     if web:
         cname = runner.run_web(repo, port=port, **common)
@@ -302,6 +309,12 @@ RUN_COMMAND = CommandDef(
             name="--git-identity-from-host",
             action="store_true",
             help="Use host git config user.name/email as human committer identity",
+        ),
+        ArgDef(name="--shared-dir", help="Host directory to mount as shared IPC space"),
+        ArgDef(
+            name="--shared-mount",
+            default="/shared",
+            help="Container mount point for shared dir (default: /shared)",
         ),
     ),
 )
