@@ -48,15 +48,13 @@ try:
 except PackageNotFoundError:
     pass  # editable install or running from source without metadata
 
-# -- Container environment assembly --------------------------------------------
-# -- Config resolution ---------------------------------------------------------
-# Re-export protocol types from terok-sandbox for convenience
+# -- terok-sandbox protocol types (re-exported for convenience) ----------------
 from terok_sandbox.doctor import CheckVerdict, DoctorCheck
 
-# -- Command registry ----------------------------------------------------------
+# -- Commands + CLI surface ----------------------------------------------------
 from .commands import COMMANDS as AGENT_COMMANDS, CommandDef
 
-# -- Build: image construction + resource staging ------------------------------
+# -- Container (build, env assembly, runner) -----------------------------------
 from .container.build import (
     DEFAULT_BASE_IMAGE,
     BuildError,
@@ -72,11 +70,9 @@ from .container.build import (
     stage_toad_agents,
 )
 from .container.env import ContainerEnvResult, ContainerEnvSpec, assemble_container_env
-
-# -- Runner facade -------------------------------------------------------------
 from .container.runner import AgentRunner
 
-# -- Auth ----------------------------------------------------------------------
+# -- Credentials (auth flows, extractors, proxy commands) ----------------------
 from .credentials.auth import (
     AUTH_PROVIDERS,
     PHANTOM_CREDENTIALS_MARKER,
@@ -84,18 +80,16 @@ from .credentials.auth import (
     authenticate,
     store_api_key,
 )
-
-# -- Credential proxy ----------------------------------------------------------
 from .credentials.extractors import extract_credential
 from .credentials.proxy_commands import PROXY_COMMANDS, scan_leaked_credentials
+
+# -- Doctor + paths ------------------------------------------------------------
 from .doctor import agent_doctor_checks
 from .paths import mounts_dir
 
-# -- Agent config preparation --------------------------------------------------
+# -- Provider (headless dispatch, instructions, agent config) ------------------
 from .provider.agents import AgentConfigSpec, parse_md_agent, prepare_agent_config_dir
 from .provider.config import resolve_provider_value
-
-# -- Provider registry ---------------------------------------------------------
 from .provider.headless import (
     HEADLESS_PROVIDERS,
     PROVIDER_NAMES,
@@ -107,12 +101,10 @@ from .provider.headless import (
     collect_opencode_provider_env,
     get_provider,
 )
-
-# -- Instructions --------------------------------------------------------------
 from .provider.instructions import bundled_default_instructions, resolve_instructions
-from .roster import CredentialProxyRoute, SidecarSpec, ensure_proxy_routes, get_roster
 
-# -- Config stack --------------------------------------------------------------
+# -- Roster (agent catalog + config resolution) --------------------------------
+from .roster import CredentialProxyRoute, SidecarSpec, ensure_proxy_routes, get_roster
 from .roster.config_stack import ConfigScope, ConfigStack
 
 # -- Bootstrap YAML roster into module-level dicts ---------------------------

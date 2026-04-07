@@ -22,6 +22,41 @@ except PackageNotFoundError:
     __version__ = "0.0.0"
 
 
+# ── Public entry point ──────────────────────────────────────────────────
+
+
+def main() -> None:
+    """Run the terok-agent CLI."""
+    parser = argparse.ArgumentParser(
+        prog="terok-agent",
+        description="Single-agent task runner for hardened Podman containers",
+    )
+    parser.add_argument("--version", action="version", version=f"terok-agent {__version__}")
+    sub = parser.add_subparsers()
+
+    for cmd in COMMANDS:
+        _wire_command(sub, cmd)
+
+    # -- proxy --
+    proxy_p = sub.add_parser("proxy", help="Credential proxy management")
+    proxy_sub = proxy_p.add_subparsers()
+    for cmd in PROXY_COMMANDS:
+        _wire_command(proxy_sub, cmd)
+    proxy_p.set_defaults(_group_help=proxy_p)
+
+    args = parser.parse_args()
+    if hasattr(args, "_cmd"):
+        _dispatch(args)
+    elif hasattr(args, "_group_help"):
+        args._group_help.print_help()
+    else:
+        parser.print_help()
+        raise SystemExit(1)
+
+
+# ── Private helpers ─────────────────────────────────────────────────────
+
+
 def _wire_command(sub: argparse._SubParsersAction, cmd: CommandDef) -> None:
     """Add a :class:`CommandDef` to an argparse subparser group."""
     p = sub.add_parser(cmd.name, help=cmd.help)
@@ -55,35 +90,6 @@ def _dispatch(args: argparse.Namespace) -> None:
         raise SystemExit(f"Command '{cmd.name}' has no handler")
     kwargs = {_arg_key(arg): getattr(args, _arg_key(arg), arg.default) for arg in cmd.args}
     cmd.handler(**kwargs)
-
-
-def main() -> None:
-    """Run the terok-agent CLI."""
-    parser = argparse.ArgumentParser(
-        prog="terok-agent",
-        description="Single-agent task runner for hardened Podman containers",
-    )
-    parser.add_argument("--version", action="version", version=f"terok-agent {__version__}")
-    sub = parser.add_subparsers()
-
-    for cmd in COMMANDS:
-        _wire_command(sub, cmd)
-
-    # -- proxy --
-    proxy_p = sub.add_parser("proxy", help="Credential proxy management")
-    proxy_sub = proxy_p.add_subparsers()
-    for cmd in PROXY_COMMANDS:
-        _wire_command(proxy_sub, cmd)
-    proxy_p.set_defaults(_group_help=proxy_p)
-
-    args = parser.parse_args()
-    if hasattr(args, "_cmd"):
-        _dispatch(args)
-    elif hasattr(args, "_group_help"):
-        args._group_help.print_help()
-    else:
-        parser.print_help()
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":

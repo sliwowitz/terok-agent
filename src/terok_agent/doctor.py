@@ -40,9 +40,36 @@ _PHANTOM_TOKEN_RE = re.compile(r"^terok-p-[0-9a-fA-F]{32}$")
 _REAL_KEY_PREFIXES = ("sk-ant-", "sk-", "gho_", "ghp_", "ghs_", "glpat-")
 
 
-# ---------------------------------------------------------------------------
-# Bridge checks
-# ---------------------------------------------------------------------------
+# ── Public API ───────────────────────────────────────────────────────────
+
+
+def agent_doctor_checks(
+    roster: AgentRoster,
+    *,
+    proxy_port: int | None = None,
+) -> list[DoctorCheck]:
+    """Return agent-level health checks for in-container diagnostics.
+
+    Args:
+        roster: The loaded agent roster.
+        proxy_port: Credential proxy TCP port. Required for base URL checks;
+            if ``None``, base URL checks are skipped.
+
+    Returns:
+        List of :class:`DoctorCheck` instances ready for orchestration.
+    """
+    checks: list[DoctorCheck] = [
+        _make_ssh_bridge_check(),
+        _make_gh_proxy_bridge_check(),
+    ]
+    checks.extend(_make_credential_file_checks(roster))
+    checks.extend(_make_phantom_token_checks(roster))
+    if proxy_port is not None:
+        checks.extend(_make_base_url_checks(roster, proxy_port))
+    return checks
+
+
+# ── Check factories (in assembly order) ─────────────────────────────────
 
 
 def _make_ssh_bridge_check() -> DoctorCheck:
@@ -254,35 +281,4 @@ def _make_base_url_checks(roster: AgentRoster, proxy_port: int) -> list[DoctorCh
                 evaluate=_make_eval(var, name, expected_host),
             )
         )
-    return checks
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def agent_doctor_checks(
-    roster: AgentRoster,
-    *,
-    proxy_port: int | None = None,
-) -> list[DoctorCheck]:
-    """Return agent-level health checks for in-container diagnostics.
-
-    Args:
-        roster: The loaded agent roster.
-        proxy_port: Credential proxy TCP port. Required for base URL checks;
-            if ``None``, base URL checks are skipped.
-
-    Returns:
-        List of :class:`DoctorCheck` instances ready for orchestration.
-    """
-    checks: list[DoctorCheck] = [
-        _make_ssh_bridge_check(),
-        _make_gh_proxy_bridge_check(),
-    ]
-    checks.extend(_make_credential_file_checks(roster))
-    checks.extend(_make_phantom_token_checks(roster))
-    if proxy_port is not None:
-        checks.extend(_make_base_url_checks(roster, proxy_port))
     return checks

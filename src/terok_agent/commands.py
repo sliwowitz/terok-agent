@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Command registry for terok-agent.
+"""Registers the subcommands that terok-agent exposes to users.
 
-Follows the same :class:`CommandDef` / :class:`ArgDef` pattern as
-``terok_sandbox.commands``.  Higher-level consumers (terok) can import
-``COMMANDS`` to build their own CLI frontends.
+Each subcommand is a :class:`CommandDef` built from :class:`ArgDef` pieces.
+``COMMANDS`` at module bottom is the authoritative catalog — higher-level
+consumers (terok) import it to build their own CLI frontends.
 """
 
 from __future__ import annotations
@@ -16,6 +16,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+# ── Vocabulary ──
 
 
 @dataclass(frozen=True)
@@ -42,66 +45,7 @@ class CommandDef:
     group: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Handlers
-# ---------------------------------------------------------------------------
-
-
-def _handle_agents(*, show_all: bool = False) -> None:
-    """List registered agents."""
-    import sys
-
-    from .roster.loader import _load_bundled_agents, _load_user_agents, get_roster
-
-    roster = get_roster()
-    names = roster.all_names if show_all else roster.agent_names
-
-    if not names:
-        print("No agents registered.", file=sys.stderr)
-        return
-
-    raw = _load_bundled_agents()
-    raw.update(_load_user_agents())
-
-    rows: list[tuple[str, str, str]] = []
-    for name in sorted(names):
-        p = roster.providers.get(name)
-        auth = roster.auth_providers.get(name)
-        label = p.label if p else (auth.label if auth else name)
-        kind = raw.get(name, {}).get("kind", "native")
-        rows.append((name, label, kind))
-
-    w_name = max(len("NAME"), max(len(r[0]) for r in rows))
-    w_label = max(len("LABEL"), max(len(r[1]) for r in rows))
-
-    print(f"{'NAME':<{w_name}}  {'LABEL':<{w_label}}  TYPE")
-    for name, label, kind in rows:
-        print(f"{name:<{w_name}}  {label:<{w_label}}  {kind}")
-
-
-def _handle_build(
-    *,
-    base: str = "ubuntu:24.04",
-    rebuild: bool = False,
-    full_rebuild: bool = False,
-    sidecar: bool = False,
-) -> None:
-    """Build L0+L1 container images (optionally include sidecar L1)."""
-    from .container.build import BuildError, build_base_images, build_sidecar_image
-
-    try:
-        images = build_base_images(base, rebuild=rebuild, full_rebuild=full_rebuild)
-    except BuildError as e:
-        raise SystemExit(str(e)) from e
-    print(f"\nL0: {images.l0}")
-    print(f"L1: {images.l1}")
-
-    if sidecar:
-        try:
-            tag = build_sidecar_image(base, rebuild=rebuild, full_rebuild=full_rebuild)
-        except BuildError as e:
-            raise SystemExit(str(e)) from e
-        print(f"L1 (sidecar): {tag}")
+# ── Handlers ──
 
 
 def _resolve_host_git_identity() -> tuple[str | None, str | None]:
@@ -200,31 +144,6 @@ def _handle_run(
     print(f"Container: {cname}")
 
 
-def _handle_auth(*, agent: str, api_key: str | None = None) -> None:
-    """Run auth flow for an agent."""
-    from .credentials.auth import AUTH_PROVIDERS, authenticate, store_api_key
-
-    if api_key is not None:
-        if not api_key.strip():
-            raise SystemExit("API key cannot be empty.")
-        if agent not in AUTH_PROVIDERS:
-            available = ", ".join(AUTH_PROVIDERS)
-            raise SystemExit(f"Unknown provider: {agent}. Available: {available}")
-        store_api_key(agent, api_key.strip())
-    else:
-        from .container.build import l1_image_tag
-
-        image = l1_image_tag("ubuntu:24.04")
-        from .paths import mounts_dir
-
-        authenticate("standalone", agent, mounts_dir=mounts_dir(), image=image)
-
-    # Write proxy URLs to shared config files (e.g. Vibe config.toml, gh config.yml)
-    from .credentials.proxy_config import write_proxy_config
-
-    write_proxy_config(agent)
-
-
 def _handle_run_tool(
     *,
     tool: str,
@@ -253,6 +172,88 @@ def _handle_run_tool(
     print(f"Container: {cname}")
 
 
+def _handle_auth(*, agent: str, api_key: str | None = None) -> None:
+    """Run auth flow for an agent."""
+    from .credentials.auth import AUTH_PROVIDERS, authenticate, store_api_key
+
+    if api_key is not None:
+        if not api_key.strip():
+            raise SystemExit("API key cannot be empty.")
+        if agent not in AUTH_PROVIDERS:
+            available = ", ".join(AUTH_PROVIDERS)
+            raise SystemExit(f"Unknown provider: {agent}. Available: {available}")
+        store_api_key(agent, api_key.strip())
+    else:
+        from .container.build import l1_image_tag
+
+        image = l1_image_tag("ubuntu:24.04")
+        from .paths import mounts_dir
+
+        authenticate("standalone", agent, mounts_dir=mounts_dir(), image=image)
+
+    # Write proxy URLs to shared config files (e.g. Vibe config.toml, gh config.yml)
+    from .credentials.proxy_config import write_proxy_config
+
+    write_proxy_config(agent)
+
+
+def _handle_agents(*, show_all: bool = False) -> None:
+    """List registered agents."""
+    import sys
+
+    from .roster.loader import _load_bundled_agents, _load_user_agents, get_roster
+
+    roster = get_roster()
+    names = roster.all_names if show_all else roster.agent_names
+
+    if not names:
+        print("No agents registered.", file=sys.stderr)
+        return
+
+    raw = _load_bundled_agents()
+    raw.update(_load_user_agents())
+
+    rows: list[tuple[str, str, str]] = []
+    for name in sorted(names):
+        p = roster.providers.get(name)
+        auth = roster.auth_providers.get(name)
+        label = p.label if p else (auth.label if auth else name)
+        kind = raw.get(name, {}).get("kind", "native")
+        rows.append((name, label, kind))
+
+    w_name = max(len("NAME"), max(len(r[0]) for r in rows))
+    w_label = max(len("LABEL"), max(len(r[1]) for r in rows))
+
+    print(f"{'NAME':<{w_name}}  {'LABEL':<{w_label}}  TYPE")
+    for name, label, kind in rows:
+        print(f"{name:<{w_name}}  {label:<{w_label}}  {kind}")
+
+
+def _handle_build(
+    *,
+    base: str = "ubuntu:24.04",
+    rebuild: bool = False,
+    full_rebuild: bool = False,
+    sidecar: bool = False,
+) -> None:
+    """Build L0+L1 container images (optionally include sidecar L1)."""
+    from .container.build import BuildError, build_base_images, build_sidecar_image
+
+    try:
+        images = build_base_images(base, rebuild=rebuild, full_rebuild=full_rebuild)
+    except BuildError as e:
+        raise SystemExit(str(e)) from e
+    print(f"\nL0: {images.l0}")
+    print(f"L1: {images.l1}")
+
+    if sidecar:
+        try:
+            tag = build_sidecar_image(base, rebuild=rebuild, full_rebuild=full_rebuild)
+        except BuildError as e:
+            raise SystemExit(str(e)) from e
+        print(f"L1 (sidecar): {tag}")
+
+
 def _handle_ls() -> None:
     """List running terok-agent containers."""
     from terok_sandbox import get_project_container_states
@@ -277,9 +278,7 @@ def _handle_stop(*, name: str) -> None:
     print(f"Stopped: {name}")
 
 
-# ---------------------------------------------------------------------------
-# Command definitions
-# ---------------------------------------------------------------------------
+# ── Command definitions ──
 
 RUN_COMMAND = CommandDef(
     name="run",
@@ -319,6 +318,22 @@ RUN_COMMAND = CommandDef(
     ),
 )
 
+RUN_TOOL_COMMAND = CommandDef(
+    name="run-tool",
+    help="Run a tool in a sidecar container (separate L1, real API key)",
+    handler=_handle_run_tool,
+    args=(
+        ArgDef(name="tool", help="Tool name (coderabbit)"),
+        ArgDef(name="repo", nargs="?", default=".", help="Local path or git URL (default: .)"),
+        ArgDef(name="--branch", help="Git branch to check out"),
+        ArgDef(name="--gate", action="store_true", default=True, help="Use gate (default)"),
+        ArgDef(name="--no-gate", action="store_true", help="Disable gate"),
+        ArgDef(name="--name", help="Container name override"),
+        ArgDef(name="--timeout", type=int, default=600, help="Timeout in seconds (default: 600)"),
+        ArgDef(name="tool_args", nargs="*", help="Extra args passed to the tool (after --)"),
+    ),
+)
+
 AUTH_COMMAND = CommandDef(
     name="auth",
     help="Authenticate an agent",
@@ -347,22 +362,6 @@ BUILD_COMMAND = CommandDef(
         ArgDef(name="--rebuild", action="store_true", help="Force rebuild (cache bust)"),
         ArgDef(name="--full-rebuild", action="store_true", help="Force --no-cache --pull=always"),
         ArgDef(name="--sidecar", action="store_true", help="Also build sidecar L1 (CodeRabbit)"),
-    ),
-)
-
-RUN_TOOL_COMMAND = CommandDef(
-    name="run-tool",
-    help="Run a tool in a sidecar container (separate L1, real API key)",
-    handler=_handle_run_tool,
-    args=(
-        ArgDef(name="tool", help="Tool name (coderabbit)"),
-        ArgDef(name="repo", nargs="?", default=".", help="Local path or git URL (default: .)"),
-        ArgDef(name="--branch", help="Git branch to check out"),
-        ArgDef(name="--gate", action="store_true", default=True, help="Use gate (default)"),
-        ArgDef(name="--no-gate", action="store_true", help="Disable gate"),
-        ArgDef(name="--name", help="Container name override"),
-        ArgDef(name="--timeout", type=int, default=600, help="Timeout in seconds (default: 600)"),
-        ArgDef(name="tool_args", nargs="*", help="Extra args passed to the tool (after --)"),
     ),
 )
 
