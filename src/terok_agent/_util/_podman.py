@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Podman user-namespace helpers for rootless operation."""
+"""Maps host UID/GID into container user namespace for rootless podman."""
 
 import os
 

@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Vendored utility functions — standalone, no terok-agent domain deps."""
+"""Re-exports filesystem, podman, and YAML utilities for internal use.
+
+Standalone — no terok-agent domain imports, safe to use from any layer.
+"""
 
 from ._fs import ensure_dir, ensure_dir_writable
 from ._podman import podman_userns_args

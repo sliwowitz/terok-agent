@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Platform-aware path resolution for terok-agent directories.
+"""Resolves filesystem paths for agent state and bind-mount directories.
 
-Provides XDG / FHS resolution for the agent's own state directory,
-independent of terok-sandbox's namespace.
+Falls back through ``TEROK_AGENT_STATE_DIR`` → FHS → platformdirs → XDG
+to locate a writable state directory, independent of terok-sandbox's
+namespace.
 """
 
 import getpass
@@ -21,14 +22,6 @@ APP_NAME = "terok-agent"
 
 _UMBRELLA = "terok"
 _SUBDIR = "agent"
-
-
-def _is_root() -> bool:
-    """Return True if the current process is running as root."""
-    try:
-        return os.geteuid() == 0  # type: ignore[attr-defined]
-    except AttributeError:
-        return getpass.getuser() == "root"
 
 
 def state_root() -> Path:
@@ -60,3 +53,14 @@ def mounts_dir() -> Path:
     container-exposed and subject to potential poisoning.
     """
     return state_root() / "mounts"
+
+
+# ── Private helpers ──────────────────────────────────────────────────
+
+
+def _is_root() -> bool:
+    """Return True if the current process is running as root."""
+    try:
+        return os.geteuid() == 0  # type: ignore[attr-defined]
+    except AttributeError:
+        return getpass.getuser() == "root"

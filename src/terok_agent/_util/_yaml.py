@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Minimal YAML loader — vendored from terok.lib.util.yaml.
+"""Loads YAML strings with round-trip fidelity (comments, order, quotes preserved).
 
-Only the ``load`` function is needed by terok-agent (for frontmatter parsing
-and config stack loading).  Round-trip dump is not required here.
+Used for frontmatter parsing and config stack loading.  Vendored from
+terok.lib.util.yaml — only the load path is needed here.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Filesystem helpers for directory creation and writability checks."""
+"""Creates directories and verifies they are writable before use."""
 
 import os
 from pathlib import Path
