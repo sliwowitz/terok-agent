@@ -1,6 +1,7 @@
 - [Home](index.md)
 - Developer Guide
     - [Credential Proxy](credential-proxy.md)
-    - [Code Quality](quality_report.md)
+    - [Code Metrics](quality_report.md)
+    - [Module Map](module-map.md)
     - [CI Workflow Map](ci_map.md)
 - [API Reference](reference/)
