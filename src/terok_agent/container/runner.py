@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""High-level agent runner composing sandbox + agent config + container launch.
+"""Launches AI agents in hardened Podman containers.
 
-This is the core of ``terok-agent run`` — it builds the environment,
-prepares agent config, and launches a hardened Podman container with
-the requested AI agent.  Three launch modes:
+Builds the environment, prepares agent config, and launches a hardened
+Podman container with the requested AI agent.  Three launch modes:
 
 - **Headless**: fire-and-forget with a prompt (``run_headless``)
 - **Interactive**: user logs in, agent is ready (``run_interactive``)
@@ -33,32 +32,6 @@ if TYPE_CHECKING:
     from terok_agent.roster.loader import AgentRoster
 
 _logger = logging.getLogger(__name__)
-
-
-def _generate_task_id() -> str:
-    """Generate a short unique task identifier."""
-    return uuid.uuid4().hex[:12]
-
-
-def _resolve_repo(repo: str) -> tuple[str | None, Path | None]:
-    """Classify *repo* as a git URL or local path.
-
-    Returns ``(code_repo, local_path)`` — exactly one is non-None.
-    Raises ``SystemExit`` for ambiguous local paths (look like paths but
-    don't exist).
-    """
-    # Heuristic: if it looks like a local path (starts with /, ./, ~, or has
-    # no : before /), check existence
-    p = Path(repo).expanduser()
-    if p.is_dir():
-        return None, p.resolve()
-    # If it looks like a local path but doesn't exist, fail early
-    if repo.startswith(("/", "./", "../", "~")) or (
-        not repo.startswith("git@") and "://" not in repo and ":" not in repo
-    ):
-        raise SystemExit(f"Local path not found: {repo}")
-    # Treat as git URL (SSH, HTTPS, or file://)
-    return repo, None
 
 
 class AgentRunner:
@@ -490,8 +463,6 @@ class AgentRunner:
 
         return build_sidecar_image(self._base_image, tool_name=tool_name)
 
-    # _shared_mounts() removed — absorbed into env_builder.assemble_container_env()
-
     def _setup_gate(self, repo_url: str, task_id: str) -> str:
         """Mirror a repo via the sandbox gate and return the gate HTTP URL.
 
@@ -529,8 +500,6 @@ class AgentRunner:
         self.sandbox.ensure_gate()
         token = self.sandbox.create_token(repo_key, task_id)
         return self.sandbox.gate_url(gate_path, token)
-
-    # _credential_proxy_env() removed — absorbed into env_builder.assemble_container_env()
 
     def _direct_credential_env(self, tool_name: str) -> dict[str, str]:
         """Load the real API key for a sidecar tool and return as env dict.
@@ -649,12 +618,6 @@ class AgentRunner:
 
         return cname
 
-    # ------------------------------------------------------------------
-    # Static helper (utility)
-    # ------------------------------------------------------------------
-
-    # _base_env() removed — absorbed into env_builder.assemble_container_env()
-
     @staticmethod
     def _stream_headless(cname: str, timeout: float) -> None:
         """Stream container logs to stdout and print exit code when done."""
@@ -695,3 +658,32 @@ class AgentRunner:
 
         if exit_code != 0:
             print(f"Agent exited with code {exit_code}")
+
+
+# ── Module-level helpers ────────────────────────────────────────────────
+
+
+def _generate_task_id() -> str:
+    """Generate a short unique task identifier."""
+    return uuid.uuid4().hex[:12]
+
+
+def _resolve_repo(repo: str) -> tuple[str | None, Path | None]:
+    """Classify *repo* as a git URL or local path.
+
+    Returns ``(code_repo, local_path)`` — exactly one is non-None.
+    Raises ``SystemExit`` for ambiguous local paths (look like paths but
+    don't exist).
+    """
+    # Heuristic: if it looks like a local path (starts with /, ./, ~, or has
+    # no : before /), check existence
+    p = Path(repo).expanduser()
+    if p.is_dir():
+        return None, p.resolve()
+    # If it looks like a local path but doesn't exist, fail early
+    if repo.startswith(("/", "./", "../", "~")) or (
+        not repo.startswith("git@") and "://" not in repo and ":" not in repo
+    ):
+        raise SystemExit(f"Local path not found: {repo}")
+    # Treat as git URL (SSH, HTTPS, or file://)
+    return repo, None

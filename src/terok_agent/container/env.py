@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Single source of truth for container environment and volume assembly.
+"""Assembles container environment variables and volume mounts for agent launches.
 
 Both ``terok-agent run`` (standalone) and ``terok`` (project orchestrator)
 construct identical container environments — shared config mounts, credential
@@ -34,9 +34,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Specification (input)
-# ---------------------------------------------------------------------------
+# ── Vocabulary ──
 
 
 @dataclass(frozen=True)
@@ -130,11 +128,6 @@ class ContainerEnvSpec:
     mode logic)."""
 
 
-# ---------------------------------------------------------------------------
-# Result (output)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ContainerEnvResult:
     """Assembled container environment ready for RunSpec construction.
@@ -154,9 +147,97 @@ class ContainerEnvResult:
     an auto-created temporary directory — the **caller owns cleanup**."""
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+# ── Public API ──
+
+
+def assemble_container_env(
+    spec: ContainerEnvSpec,
+    roster: AgentRoster,
+    *,
+    proxy_bypass: bool = False,
+) -> ContainerEnvResult:
+    """Assemble container environment variables and volume mounts.
+
+    This is the **single source of truth** for container env/volume assembly.
+    Both ``AgentRunner._run()`` and terok's ``build_task_env_and_volumes()``
+    delegate here.
+
+    Args:
+        spec: What the caller wants — all host↔container contract fields.
+        roster: Agent roster for shared mounts, proxy routes, provider identity.
+        proxy_bypass: Skip credential proxy entirely (terok's explicit opt-out).
+
+    Returns:
+        Assembled env dict, volume tuple, and resolved task_dir.
+    """
+    from terok_agent.paths import mounts_dir as _mounts_dir
+
+    env: dict[str, str] = {}
+    volumes: list[str] = []
+
+    # 1. Base env
+    env["TASK_ID"] = spec.task_id
+    env["REPO_ROOT"] = "/workspace"
+    env["GIT_RESET_MODE"] = "none"
+    env["CLAUDE_CONFIG_DIR"] = "/home/dev/.claude"
+
+    # 2. OpenCode provider env
+    env.update(roster.collect_opencode_provider_env())
+
+    # 3. Git identity
+    env.update(_resolve_git_identity(spec, roster))
+
+    # 4. Authorship env (for per-agent wrappers inside container)
+    env["TEROK_GIT_AUTHORSHIP"] = spec.authorship
+    env["HUMAN_GIT_NAME"] = spec.human_name
+    env["HUMAN_GIT_EMAIL"] = spec.human_email
+
+    # 5. Branch
+    if spec.branch:
+        env["GIT_BRANCH"] = spec.branch
+
+    # 6. Repo URLs
+    if spec.code_repo:
+        env["CODE_REPO"] = spec.code_repo
+    if spec.clone_from:
+        env["CLONE_FROM"] = spec.clone_from
+
+    # 7. Workspace volume
+    volumes.append(f"{spec.workspace_host_path}:/workspace:Z")
+
+    # 8. Shared config mounts from roster
+    mounts_base = spec.envs_dir or _mounts_dir()
+    volumes += _shared_config_mounts(roster, mounts_base)
+
+    # 9. Credential proxy
+    if not proxy_bypass:
+        env.update(_inject_proxy_tokens(roster, spec.credential_scope, spec.task_id))
+
+    # 10. Agent config mount
+    if spec.agent_config_dir:
+        volumes.append(f"{spec.agent_config_dir}:/home/dev/.terok:Z")
+
+    # 11. Unrestricted mode
+    if spec.unrestricted:
+        env["TEROK_UNRESTRICTED"] = "1"
+        env.update(roster.collect_all_auto_approve_env())
+
+    # 12. Shared task directory
+    if spec.shared_dir:
+        spec.shared_dir.mkdir(parents=True, exist_ok=True)
+        volumes.append(f"{spec.shared_dir}:{spec.shared_mount}:z")
+        env["TEROK_SHARED_DIR"] = spec.shared_mount
+
+    # 13. Extra volumes
+    volumes.extend(spec.extra_volumes)
+
+    # Resolve task_dir
+    task_dir = spec.task_dir or Path(tempfile.mkdtemp(prefix=f"terok-agent-{spec.task_id}-"))
+
+    return ContainerEnvResult(env=env, volumes=tuple(volumes), task_dir=task_dir)
+
+
+# ── Private helpers ──
 
 
 def _resolve_git_identity(spec: ContainerEnvSpec, roster: AgentRoster) -> dict[str, str]:
@@ -264,95 +345,3 @@ def _inject_proxy_tokens(roster: AgentRoster, scope: str, task_id: str) -> dict[
 
     _logger.debug("Credential proxy: injected %d env vars for %s", len(env), routed)
     return env
-
-
-# ---------------------------------------------------------------------------
-# Main assembly function
-# ---------------------------------------------------------------------------
-
-
-def assemble_container_env(
-    spec: ContainerEnvSpec,
-    roster: AgentRoster,
-    *,
-    proxy_bypass: bool = False,
-) -> ContainerEnvResult:
-    """Assemble container environment variables and volume mounts.
-
-    This is the **single source of truth** for container env/volume assembly.
-    Both ``AgentRunner._run()`` and terok's ``build_task_env_and_volumes()``
-    delegate here.
-
-    Args:
-        spec: What the caller wants — all host↔container contract fields.
-        roster: Agent roster for shared mounts, proxy routes, provider identity.
-        proxy_bypass: Skip credential proxy entirely (terok's explicit opt-out).
-
-    Returns:
-        Assembled env dict, volume tuple, and resolved task_dir.
-    """
-    from terok_agent.paths import mounts_dir as _mounts_dir
-
-    env: dict[str, str] = {}
-    volumes: list[str] = []
-
-    # 1. Base env
-    env["TASK_ID"] = spec.task_id
-    env["REPO_ROOT"] = "/workspace"
-    env["GIT_RESET_MODE"] = "none"
-    env["CLAUDE_CONFIG_DIR"] = "/home/dev/.claude"
-
-    # 2. OpenCode provider env
-    env.update(roster.collect_opencode_provider_env())
-
-    # 3. Git identity
-    env.update(_resolve_git_identity(spec, roster))
-
-    # 4. Authorship env (for per-agent wrappers inside container)
-    env["TEROK_GIT_AUTHORSHIP"] = spec.authorship
-    env["HUMAN_GIT_NAME"] = spec.human_name
-    env["HUMAN_GIT_EMAIL"] = spec.human_email
-
-    # 5. Branch
-    if spec.branch:
-        env["GIT_BRANCH"] = spec.branch
-
-    # 6. Repo URLs
-    if spec.code_repo:
-        env["CODE_REPO"] = spec.code_repo
-    if spec.clone_from:
-        env["CLONE_FROM"] = spec.clone_from
-
-    # 7. Workspace volume
-    volumes.append(f"{spec.workspace_host_path}:/workspace:Z")
-
-    # 8. Shared config mounts from roster
-    mounts_base = spec.envs_dir or _mounts_dir()
-    volumes += _shared_config_mounts(roster, mounts_base)
-
-    # 9. Credential proxy
-    if not proxy_bypass:
-        env.update(_inject_proxy_tokens(roster, spec.credential_scope, spec.task_id))
-
-    # 10. Agent config mount
-    if spec.agent_config_dir:
-        volumes.append(f"{spec.agent_config_dir}:/home/dev/.terok:Z")
-
-    # 11. Unrestricted mode
-    if spec.unrestricted:
-        env["TEROK_UNRESTRICTED"] = "1"
-        env.update(roster.collect_all_auto_approve_env())
-
-    # 12. Shared task directory
-    if spec.shared_dir:
-        spec.shared_dir.mkdir(parents=True, exist_ok=True)
-        volumes.append(f"{spec.shared_dir}:{spec.shared_mount}:z")
-        env["TEROK_SHARED_DIR"] = spec.shared_mount
-
-    # 13. Extra volumes
-    volumes.extend(spec.extra_volumes)
-
-    # Resolve task_dir
-    task_dir = spec.task_dir or Path(tempfile.mkdtemp(prefix=f"terok-agent-{spec.task_id}-"))
-
-    return ContainerEnvResult(env=env, volumes=tuple(volumes), task_dir=task_dir)

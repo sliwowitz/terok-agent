@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Container image building and build-context staging.
+"""Builds L0 (base dev) and L1 (agent CLI) container images via podman.
 
 Owns the L0 (base dev) and L1 (agent CLI) Dockerfile templates, resource
 staging, image naming, and ``podman build`` invocation.
@@ -44,9 +44,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+# ── Vocabulary ──
 
 DEFAULT_BASE_IMAGE = "ubuntu:24.04"
 """Default base OS image when none is specified."""
@@ -55,56 +53,12 @@ _DEFAULT_TAG = "ubuntu-24.04"
 """Pre-sanitized tag fragment for the default base image."""
 
 
-# ---------------------------------------------------------------------------
-# Exceptions
-# ---------------------------------------------------------------------------
-
-
 class BuildError(RuntimeError):
     """Raised when base-image construction cannot complete.
 
     The CLI maps this to a user-facing error message; library callers
     can catch it without being terminated by ``SystemExit``.
     """
-
-
-# ---------------------------------------------------------------------------
-# Image naming convention
-# ---------------------------------------------------------------------------
-
-
-def _normalize_base_image(base_image: str | None) -> str:
-    """Normalize a base image string, falling back to the default."""
-    return (base_image or "").strip() or DEFAULT_BASE_IMAGE
-
-
-def _base_tag(base_image: str) -> str:
-    """Derive a safe OCI tag fragment from an arbitrary base image string.
-
-    Replaces non-alphanumeric characters (except ``_``, ``.``, ``-``) with
-    dashes, lowercases, and truncates with a SHA1 suffix if too long.
-    """
-    raw = _normalize_base_image(base_image)
-    tag = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-.").lower() or _DEFAULT_TAG
-    if len(tag) > 120:
-        digest = hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
-        tag = f"{tag[:111]}-{digest}"
-    return tag
-
-
-def l0_image_tag(base_image: str) -> str:
-    """Return the L0 base dev image tag for *base_image*."""
-    return f"terok-l0:{_base_tag(base_image)}"
-
-
-def l1_image_tag(base_image: str) -> str:
-    """Return the L1 agent CLI image tag for *base_image*."""
-    return f"terok-l1-cli:{_base_tag(base_image)}"
-
-
-def l1_sidecar_image_tag(base_image: str) -> str:
-    """Return the L1 sidecar (tool-only) image tag for *base_image*."""
-    return f"terok-l1-sidecar:{_base_tag(base_image)}"
 
 
 @dataclass(frozen=True)
@@ -121,186 +75,7 @@ class ImageSet:
     """L1 sidecar image tag, if built (e.g. ``terok-l1-sidecar:ubuntu-24.04``)."""
 
 
-# ---------------------------------------------------------------------------
-# Build-context resource staging
-# ---------------------------------------------------------------------------
-
-
-def _copy_package_tree(package: str, rel_path: str, dest: Path) -> None:
-    """Copy a directory tree from package resources to a filesystem path.
-
-    Uses ``importlib.resources`` Traversable API so it works from
-    wheels and zip installs.
-    """
-    root = resources.files(package) / rel_path
-
-    def _recurse(src, dst: Path) -> None:  # type: ignore[no-untyped-def]
-        dst.mkdir(parents=True, exist_ok=True)
-        for child in src.iterdir():
-            out = dst / child.name
-            if child.is_dir():
-                _recurse(child, out)
-            else:
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_bytes(child.read_bytes())
-
-    _recurse(root, dest)
-
-
-def _clean_packaging_artifacts(dest: Path) -> None:
-    """Remove __pycache__ dirs and __init__.py from a staged directory."""
-    for unwanted in dest.rglob("__pycache__"):
-        shutil.rmtree(unwanted)
-    init = dest / "__init__.py"
-    if init.exists():
-        init.unlink()
-
-
-def stage_scripts(dest: Path) -> None:
-    """Stage container helper scripts into *dest*.
-
-    Copies all files from ``terok_agent/resources/scripts/`` into the given
-    directory, replacing any existing contents.  Python bytecode caches and
-    ``__init__.py`` markers are excluded.
-    """
-    if dest.exists():
-        shutil.rmtree(dest)
-    _copy_package_tree("terok_agent", "resources/scripts", dest)
-    _clean_packaging_artifacts(dest)
-
-
-def stage_toad_agents(dest: Path) -> None:
-    """Stage Toad ACP agent TOML definitions into *dest*.
-
-    These describe OpenCode-based agents (Blablador, KISSKI, etc.) that are
-    injected into Toad's bundled agent directory at container build time.
-    """
-    if dest.exists():
-        shutil.rmtree(dest)
-    _copy_package_tree("terok_agent", "resources/toad-agents", dest)
-    _clean_packaging_artifacts(dest)
-
-
-def stage_tmux_config(dest: Path) -> None:
-    """Stage the container tmux configuration into *dest*.
-
-    Copies ``container-tmux.conf`` — the green-status-bar config that
-    distinguishes container tmux sessions from host tmux.
-    """
-    if dest.exists():
-        shutil.rmtree(dest)
-    _copy_package_tree("terok_agent", "resources/tmux", dest)
-    _clean_packaging_artifacts(dest)
-
-
-# ---------------------------------------------------------------------------
-# Dockerfile template rendering
-# ---------------------------------------------------------------------------
-
-
-def _render_template(template_name: str, variables: dict[str, str]) -> str:
-    """Render a Jinja2 Dockerfile template from package resources.
-
-    Templates live in ``resources/templates/``.  Currently they use
-    Dockerfile ``ARG``/``${VAR}`` syntax (Jinja2 is a pass-through).
-    Future L1 templatisation will use ``{% for agent %}`` loops driven
-    by the YAML agent roster.
-    """
-    from jinja2 import BaseLoader, Environment
-
-    raw = (resources.files("terok_agent") / "resources" / "templates" / template_name).read_text(
-        encoding="utf-8"
-    )
-    env = Environment(  # nosec B701 — Dockerfile output, not HTML
-        loader=BaseLoader(), keep_trailing_newline=True, autoescape=False
-    )
-    tmpl = env.from_string(raw)
-    return tmpl.render(**variables)
-
-
-def render_l0(base_image: str = DEFAULT_BASE_IMAGE) -> str:
-    """Render the L0 (base dev) Dockerfile.
-
-    The *base_image* is normalised before rendering so that blank or
-    whitespace-only values produce a valid Dockerfile.
-    """
-    return _render_template(
-        "l0.dev.Dockerfile.template",
-        {"BASE_IMAGE": _normalize_base_image(base_image)},
-    )
-
-
-def render_l1(l0_image: str, *, cache_bust: str = "0") -> str:
-    """Render the L1 (agent CLI) Dockerfile.
-
-    *l0_image* is the tag of the L0 image to build on top of.
-    *cache_bust* invalidates the agent-install layers when changed
-    (typically set to a Unix timestamp).
-    """
-    return _render_template(
-        "l1.agent-cli.Dockerfile.template",
-        {"BASE_IMAGE": l0_image, "AGENT_CACHE_BUST": cache_bust},
-    )
-
-
-def render_l1_sidecar(
-    l0_image: str, *, tool_name: str = "coderabbit", cache_bust: str = "0"
-) -> str:
-    """Render the L1 sidecar (tool-only) Dockerfile.
-
-    The sidecar image is built FROM L0 (not L1) and installs a single
-    tool binary — no agent CLIs, no LLMs.  The *tool_name* selects which
-    tool install block to activate via Jinja2 conditional.
-    """
-    return _render_template(
-        "l1.sidecar.Dockerfile.template",
-        {"BASE_IMAGE": l0_image, "TOOL_CACHE_BUST": cache_bust, "tool_name": tool_name},
-    )
-
-
-# ---------------------------------------------------------------------------
-# Build context preparation
-# ---------------------------------------------------------------------------
-
-
-def prepare_build_context(dest: Path) -> None:
-    """Stage auxiliary resources into a build context directory.
-
-    After calling this, *dest* contains the resources that Dockerfile
-    ``COPY`` directives reference:
-
-    - ``scripts/``     — container helper scripts (init, env, ACP wrappers)
-    - ``toad-agents/`` — ACP agent TOML definitions
-    - ``tmux/``        — container tmux config
-
-    Dockerfiles themselves are **not** written here — they are rendered
-    and placed by :func:`build_base_images` (which calls this function
-    internally).
-    """
-    dest.mkdir(parents=True, exist_ok=True)
-    stage_scripts(dest / "scripts")
-    stage_toad_agents(dest / "toad-agents")
-    stage_tmux_config(dest / "tmux")
-
-
-# ---------------------------------------------------------------------------
-# Image building
-# ---------------------------------------------------------------------------
-
-
-def _check_podman() -> None:
-    """Raise :class:`BuildError` if podman is not on PATH."""
-    if shutil.which("podman") is None:
-        raise BuildError("podman not found; please install podman")
-
-
-def _image_exists(image: str) -> bool:
-    """Check if a container image exists locally."""
-    result = subprocess.run(
-        ["podman", "image", "exists", image],
-        capture_output=True,
-    )
-    return result.returncode == 0
+# ── Public entry points ──
 
 
 def build_base_images(
@@ -468,3 +243,214 @@ def build_sidecar_image(
             shutil.rmtree(context, ignore_errors=True)
 
     return sidecar_tag
+
+
+# ── Build context ──
+
+
+def prepare_build_context(dest: Path) -> None:
+    """Stage auxiliary resources into a build context directory.
+
+    After calling this, *dest* contains the resources that Dockerfile
+    ``COPY`` directives reference:
+
+    - ``scripts/``     — container helper scripts (init, env, ACP wrappers)
+    - ``toad-agents/`` — ACP agent TOML definitions
+    - ``tmux/``        — container tmux config
+
+    Dockerfiles themselves are **not** written here — they are rendered
+    and placed by :func:`build_base_images` (which calls this function
+    internally).
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    stage_scripts(dest / "scripts")
+    stage_toad_agents(dest / "toad-agents")
+    stage_tmux_config(dest / "tmux")
+
+
+# ── Dockerfile rendering ──
+
+
+def render_l0(base_image: str = DEFAULT_BASE_IMAGE) -> str:
+    """Render the L0 (base dev) Dockerfile.
+
+    The *base_image* is normalised before rendering so that blank or
+    whitespace-only values produce a valid Dockerfile.
+    """
+    return _render_template(
+        "l0.dev.Dockerfile.template",
+        {"BASE_IMAGE": _normalize_base_image(base_image)},
+    )
+
+
+def render_l1(l0_image: str, *, cache_bust: str = "0") -> str:
+    """Render the L1 (agent CLI) Dockerfile.
+
+    *l0_image* is the tag of the L0 image to build on top of.
+    *cache_bust* invalidates the agent-install layers when changed
+    (typically set to a Unix timestamp).
+    """
+    return _render_template(
+        "l1.agent-cli.Dockerfile.template",
+        {"BASE_IMAGE": l0_image, "AGENT_CACHE_BUST": cache_bust},
+    )
+
+
+def render_l1_sidecar(
+    l0_image: str, *, tool_name: str = "coderabbit", cache_bust: str = "0"
+) -> str:
+    """Render the L1 sidecar (tool-only) Dockerfile.
+
+    The sidecar image is built FROM L0 (not L1) and installs a single
+    tool binary — no agent CLIs, no LLMs.  The *tool_name* selects which
+    tool install block to activate via Jinja2 conditional.
+    """
+    return _render_template(
+        "l1.sidecar.Dockerfile.template",
+        {"BASE_IMAGE": l0_image, "TOOL_CACHE_BUST": cache_bust, "tool_name": tool_name},
+    )
+
+
+# ── Resource staging ──
+
+
+def stage_scripts(dest: Path) -> None:
+    """Stage container helper scripts into *dest*.
+
+    Copies all files from ``terok_agent/resources/scripts/`` into the given
+    directory, replacing any existing contents.  Python bytecode caches and
+    ``__init__.py`` markers are excluded.
+    """
+    if dest.exists():
+        shutil.rmtree(dest)
+    _copy_package_tree("terok_agent", "resources/scripts", dest)
+    _clean_packaging_artifacts(dest)
+
+
+def stage_toad_agents(dest: Path) -> None:
+    """Stage Toad ACP agent TOML definitions into *dest*.
+
+    These describe OpenCode-based agents (Blablador, KISSKI, etc.) that are
+    injected into Toad's bundled agent directory at container build time.
+    """
+    if dest.exists():
+        shutil.rmtree(dest)
+    _copy_package_tree("terok_agent", "resources/toad-agents", dest)
+    _clean_packaging_artifacts(dest)
+
+
+def stage_tmux_config(dest: Path) -> None:
+    """Stage the container tmux configuration into *dest*.
+
+    Copies ``container-tmux.conf`` — the green-status-bar config that
+    distinguishes container tmux sessions from host tmux.
+    """
+    if dest.exists():
+        shutil.rmtree(dest)
+    _copy_package_tree("terok_agent", "resources/tmux", dest)
+    _clean_packaging_artifacts(dest)
+
+
+# ── Image naming ──
+
+
+def l0_image_tag(base_image: str) -> str:
+    """Return the L0 base dev image tag for *base_image*."""
+    return f"terok-l0:{_base_tag(base_image)}"
+
+
+def l1_image_tag(base_image: str) -> str:
+    """Return the L1 agent CLI image tag for *base_image*."""
+    return f"terok-l1-cli:{_base_tag(base_image)}"
+
+
+def l1_sidecar_image_tag(base_image: str) -> str:
+    """Return the L1 sidecar (tool-only) image tag for *base_image*."""
+    return f"terok-l1-sidecar:{_base_tag(base_image)}"
+
+
+# ── Private helpers ──
+
+
+def _normalize_base_image(base_image: str | None) -> str:
+    """Normalize a base image string, falling back to the default."""
+    return (base_image or "").strip() or DEFAULT_BASE_IMAGE
+
+
+def _base_tag(base_image: str) -> str:
+    """Derive a safe OCI tag fragment from an arbitrary base image string.
+
+    Replaces non-alphanumeric characters (except ``_``, ``.``, ``-``) with
+    dashes, lowercases, and truncates with a SHA1 suffix if too long.
+    """
+    raw = _normalize_base_image(base_image)
+    tag = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-.").lower() or _DEFAULT_TAG
+    if len(tag) > 120:
+        digest = hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+        tag = f"{tag[:111]}-{digest}"
+    return tag
+
+
+def _render_template(template_name: str, variables: dict[str, str]) -> str:
+    """Render a Jinja2 Dockerfile template from package resources.
+
+    Templates live in ``resources/templates/``.  Currently they use
+    Dockerfile ``ARG``/``${VAR}`` syntax (Jinja2 is a pass-through).
+    Future L1 templatisation will use ``{% for agent %}`` loops driven
+    by the YAML agent roster.
+    """
+    from jinja2 import BaseLoader, Environment
+
+    raw = (resources.files("terok_agent") / "resources" / "templates" / template_name).read_text(
+        encoding="utf-8"
+    )
+    env = Environment(  # nosec B701 — Dockerfile output, not HTML
+        loader=BaseLoader(), keep_trailing_newline=True, autoescape=False
+    )
+    tmpl = env.from_string(raw)
+    return tmpl.render(**variables)
+
+
+def _copy_package_tree(package: str, rel_path: str, dest: Path) -> None:
+    """Copy a directory tree from package resources to a filesystem path.
+
+    Uses ``importlib.resources`` Traversable API so it works from
+    wheels and zip installs.
+    """
+    root = resources.files(package) / rel_path
+
+    def _recurse(src, dst: Path) -> None:  # type: ignore[no-untyped-def]
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in src.iterdir():
+            out = dst / child.name
+            if child.is_dir():
+                _recurse(child, out)
+            else:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(child.read_bytes())
+
+    _recurse(root, dest)
+
+
+def _clean_packaging_artifacts(dest: Path) -> None:
+    """Remove __pycache__ dirs and __init__.py from a staged directory."""
+    for unwanted in dest.rglob("__pycache__"):
+        shutil.rmtree(unwanted)
+    init = dest / "__init__.py"
+    if init.exists():
+        init.unlink()
+
+
+def _check_podman() -> None:
+    """Raise :class:`BuildError` if podman is not on PATH."""
+    if shutil.which("podman") is None:
+        raise BuildError("podman not found; please install podman")
+
+
+def _image_exists(image: str) -> bool:
+    """Check if a container image exists locally."""
+    result = subprocess.run(
+        ["podman", "image", "exists", image],
+        capture_output=True,
+    )
+    return result.returncode == 0
