@@ -2683,25 +2683,24 @@ tomli-w = ">=1.0,<2.0"
 
 [[package]]
 name = "terok-sandbox"
-version = "0.0.47"
+version = "0.0.48"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_sandbox-0.0.48-py3-none-any.whl", hash = "sha256:cd1878a10bbce06463c58164fb2bf1d7ffcbe8b98759a66e28103b7d89502758"},
+]
 
 [package.dependencies]
 aiohttp = ">=3.9"
 cryptography = ">=43.0"
 platformdirs = ">=4.0"
-terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.14/terok_shield-0.6.14-py3-none-any.whl"}
+terok_shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.14/terok_shield-0.6.14-py3-none-any.whl"}
 
 [package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-sandbox.git"
-reference = "feat/umbrella-resolvers"
-resolved_reference = "78ca0592050cf2dd434a95d2924c8fa424fb9c39"
+type = "url"
+url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.48/terok_sandbox-0.0.48-py3-none-any.whl"
 
 [[package]]
 name = "terok-shield"
@@ -3119,4 +3118,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "dd9d56353b5a1dbf35119a16c323a337883a82edb55f0c28cdf4a625cf988117"
+content-hash = "c50846a8193032d2d9b42dc0d8a4f6a244dc50250b55fa04ec25622abb47a8e5"
