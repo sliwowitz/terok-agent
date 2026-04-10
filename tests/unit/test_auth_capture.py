@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from terok_agent.credentials.auth import (
     PHANTOM_CREDENTIALS_MARKER,
+    _apply_post_capture_state,
     _capture_credentials,
     _write_claude_credentials_file,
     store_api_key,
@@ -154,6 +155,49 @@ class TestWriteClaudeCredentialsFile:
         target = tmp_path / "nested" / "mounts"
         _write_claude_credentials_file({"type": "oauth"}, target)
         assert (target / "_claude-config" / ".credentials.json").is_file()
+
+
+class TestApplyPostCaptureState:
+    """Verify _apply_post_capture_state writes declarative JSON state files."""
+
+    def test_writes_state(self, tmp_path: Path) -> None:
+        """post_capture_state creates the declared JSON file."""
+        _apply_post_capture_state(
+            "_test-config",
+            {".state.json": {"setupDone": True}},
+            tmp_path,
+        )
+        state_path = tmp_path / "_test-config" / ".state.json"
+        assert state_path.is_file()
+        assert json.loads(state_path.read_text()) == {"setupDone": True}
+
+    def test_merges_with_existing_state(self, tmp_path: Path) -> None:
+        """Existing keys are preserved when merging post-capture state."""
+        target_dir = tmp_path / "_test-config"
+        target_dir.mkdir(parents=True)
+        (target_dir / ".state.json").write_text(json.dumps({"theme": "dark"}))
+
+        _apply_post_capture_state(
+            "_test-config",
+            {".state.json": {"setupDone": True}},
+            tmp_path,
+        )
+        state = json.loads((target_dir / ".state.json").read_text())
+        assert state == {"theme": "dark", "setupDone": True}
+
+    def test_skips_when_already_current(self, tmp_path: Path) -> None:
+        """Does not rewrite file when state already matches."""
+        target_dir = tmp_path / "_test-config"
+        target_dir.mkdir(parents=True)
+        state_path = target_dir / ".state.json"
+        original = json.dumps({"setupDone": True, "extra": "keep"})
+        state_path.write_text(original)
+        _apply_post_capture_state(
+            "_test-config",
+            {".state.json": {"setupDone": True}},
+            tmp_path,
+        )
+        assert state_path.read_text() == original
 
 
 class TestCaptureWritesCredentialsFile:

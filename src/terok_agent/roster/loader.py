@@ -571,6 +571,7 @@ def _to_auth_provider(name: str, data: dict) -> AuthProvider | None:
         extra_run_args=tuple(auth.get("extra_run_args", ())),
         modes=modes,
         api_key_hint=auth.get("api_key_hint", ""),
+        post_capture_state=auth.get("post_capture_state", {}),
     )
 
 
