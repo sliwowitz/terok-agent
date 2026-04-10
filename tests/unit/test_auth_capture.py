@@ -227,6 +227,34 @@ class TestApplyPostCaptureState:
         state = json.loads((target_dir / ".state.json").read_text())
         assert state == {"setupDone": True}
 
+    def test_rejects_traversal_in_host_dir_name(self, tmp_path: Path) -> None:
+        """Path traversal in host_dir_name is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid host_dir_name"):
+            _apply_post_capture_state("../../etc", {".x": {"a": 1}}, tmp_path)
+
+    def test_rejects_traversal_in_filename(self, tmp_path: Path) -> None:
+        """Path traversal in a patch filename is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid post_capture_state filename"):
+            _apply_post_capture_state("_ok", {"../escape.json": {"a": 1}}, tmp_path)
+
+    def test_rejects_absolute_host_dir_name(self, tmp_path: Path) -> None:
+        """Absolute host_dir_name is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid host_dir_name"):
+            _apply_post_capture_state("/etc/shadow", {".x": {"a": 1}}, tmp_path)
+
+    def test_rejects_absolute_filename(self, tmp_path: Path) -> None:
+        """Absolute patch filename is rejected."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid post_capture_state filename"):
+            _apply_post_capture_state("_ok", {"/etc/shadow": {"a": 1}}, tmp_path)
+
 
 class TestCaptureAppliesPostCaptureState:
     """Verify _capture_credentials invokes post-capture state when provider is given."""

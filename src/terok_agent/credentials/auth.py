@@ -433,11 +433,18 @@ def _apply_post_capture_state(
 
         mounts_base = mounts_dir()
 
-    target_dir = mounts_base / host_dir_name
+    mounts_root = mounts_base.resolve()
+    host_rel = Path(host_dir_name)
+    if host_rel.is_absolute() or ".." in host_rel.parts:
+        raise ValueError(f"Invalid host_dir_name: {host_dir_name!r}")
+    target_dir = (mounts_root / host_rel).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for filename, patch in patches.items():
-        path = target_dir / filename
+        rel = Path(filename)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"Invalid post_capture_state filename: {filename!r}")
+        path = (target_dir / rel).resolve()
         state: dict = {}
         if path.is_file():
             try:
