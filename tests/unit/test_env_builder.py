@@ -220,7 +220,7 @@ class TestWorkspaceVolume:
         ws = _find_vol(result.volumes, "/workspace")
         assert ws is not None
         assert ws.host_path == base_spec.workspace_host_path
-        assert ws.relabel == "Z"
+        assert ws.sharing == "private"
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +237,12 @@ class TestSharedConfigMounts:
         claude = _find_vol(result.volumes, "/home/dev/.claude")
         assert claude is not None
         assert "_claude-config" in str(claude.host_path)
-        assert claude.relabel == "z"
+        assert claude.sharing == "shared"
 
     def test_shared_mounts_use_lowercase_z(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
-        shared = [v for v in result.volumes if v.relabel == "z"]
+        shared = [v for v in result.volumes if v.sharing == "shared"]
         assert len(shared) > 0
 
     def test_host_dirs_created(self, workspace, envs_dir, roster):
@@ -267,7 +267,7 @@ class TestAgentConfigMount:
         vol = _find_vol(result.volumes, "/home/dev/.terok")
         assert vol is not None
         assert vol.host_path == cfg_dir
-        assert vol.relabel == "Z"
+        assert vol.sharing == "private"
 
     def test_no_agent_config_when_none(self, base_spec, roster):
         result = assemble_container_env(base_spec, roster, proxy_bypass=True)
@@ -306,7 +306,7 @@ class TestSharedTaskDir:
         spec = _spec(workspace, envs_dir, shared_dir=shared)
         result = assemble_container_env(spec, roster, proxy_bypass=True)
         vol = _find_vol(result.volumes, "/shared")
-        assert vol is not None and vol.host_path == shared and vol.relabel == "z"
+        assert vol is not None and vol.host_path == shared and vol.sharing == "shared"
         assert result.env["TEROK_SHARED_DIR"] == "/shared"
 
     def test_shared_dir_custom_mount(self, workspace, envs_dir, roster, tmp_path):
@@ -513,4 +513,4 @@ class TestSharedConfigMountsUnit:
     def test_all_use_shared_label(self, roster, tmp_path):
         mounts = _shared_config_mounts(roster, tmp_path)
         for m in mounts:
-            assert m.relabel == "z", f"Expected relabel='z', got: {m.relabel}"
+            assert m.sharing == "shared", f"Expected sharing='shared', got: {m.sharing}"

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from terok_sandbox import VolumeSpec
+from terok_sandbox import Sharing, VolumeSpec
 
 if TYPE_CHECKING:
     from terok_agent.roster.loader import AgentRoster
@@ -204,7 +204,7 @@ def assemble_container_env(
         env["CLONE_FROM"] = spec.clone_from
 
     # 7. Workspace volume
-    volumes.append(VolumeSpec(spec.workspace_host_path, "/workspace", relabel="Z"))
+    volumes.append(VolumeSpec(spec.workspace_host_path, "/workspace", sharing=Sharing.PRIVATE))
 
     # 8. Shared config mounts from roster
     mounts_base = spec.envs_dir or _mounts_dir()
@@ -216,7 +216,9 @@ def assemble_container_env(
 
     # 10. Agent config mount
     if spec.agent_config_dir:
-        volumes.append(VolumeSpec(spec.agent_config_dir, "/home/dev/.terok", relabel="Z"))
+        volumes.append(
+            VolumeSpec(spec.agent_config_dir, "/home/dev/.terok", sharing=Sharing.PRIVATE)
+        )
 
     # 11. Unrestricted mode
     if spec.unrestricted:
