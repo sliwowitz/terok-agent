@@ -113,6 +113,11 @@ depends_on = [
 path = "terok_agent.container.build"
 depends_on = []
 
+# Clone-cache workspace seeding — copies cached clone into task workspace
+[[modules]]
+path = "terok_agent.container.cache"
+depends_on = []
+
 # Container environment assembly — single source of truth for env + volumes
 [[modules]]
 path = "terok_agent.container.env"
@@ -125,6 +130,7 @@ depends_on = [
 path = "terok_agent.container.runner"
 depends_on = [
     "terok_agent.container.build",
+    "terok_agent.container.cache",
     "terok_agent.container.env",
     "terok_agent.paths",
     "terok_agent.provider.agents",
@@ -198,6 +204,7 @@ path = "terok_agent"
 depends_on = [
     "terok_agent.commands",
     "terok_agent.container.build",
+    "terok_agent.container.cache",
     "terok_agent.container.env",
     "terok_agent.container.runner",
     "terok_agent.credentials.auth",
