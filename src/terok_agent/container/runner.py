@@ -495,7 +495,7 @@ class AgentRunner:
             scope=repo_key,
             gate_path=gate_path,
             upstream_url=repo_url,
-            clone_cache_base=getattr(cfg, "clone_cache_base_path", None),
+            clone_cache_base=cfg.clone_cache_base_path,
         )
         gate.sync()
 

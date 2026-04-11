@@ -80,10 +80,7 @@ def _resolve_cache_dir(scope: str, cfg: SandboxConfig | None) -> Path | None:
         from terok_sandbox import SandboxConfig as _SC
 
         cfg = _SC()
-    cache_base = getattr(cfg, "clone_cache_base_path", None)
-    if cache_base is None:
-        return None
-    cache_dir = cache_base / scope
+    cache_dir = cfg.clone_cache_base_path / scope
     return cache_dir if cache_dir.is_dir() else None
 
 
