@@ -210,6 +210,12 @@ def assemble_container_env(
     mounts_base = spec.envs_dir or _mounts_dir()
     volumes += _shared_config_mounts(roster, mounts_base)
 
+    # 8b. Re-apply proxy config patches (idempotent — ensures shared mount
+    #     dirs contain correct proxy URLs even after state wipe).
+    from terok_executor.credentials.proxy_config import apply_shared_config_patches
+
+    apply_shared_config_patches(roster, mounts_base)
+
     # 9. Credential proxy
     if not proxy_bypass:
         env.update(_inject_proxy_tokens(roster, spec.credential_scope, spec.task_id))

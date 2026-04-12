@@ -497,6 +497,68 @@ class TestResolveGitIdentityUnit:
 # ---------------------------------------------------------------------------
 
 
+class TestSharedConfigPatches:
+    """Verify proxy config patches are applied during env assembly."""
+
+    def test_apply_patches_writes_toml(self, roster, tmp_path):
+        """Config patches in the roster should produce patched TOML files."""
+        from terok_executor.credentials.proxy_config import apply_shared_config_patches
+
+        # Create the host mount dir that _shared_config_mounts would create.
+        vibe_dir = tmp_path / "_vibe-config"
+        vibe_dir.mkdir()
+
+        with (
+            patch("terok_sandbox.SandboxConfig"),
+            patch("terok_sandbox.get_proxy_port", return_value=18731),
+        ):
+            apply_shared_config_patches(roster, tmp_path)
+
+        config_path = vibe_dir / "config.toml"
+        if config_path.exists():
+            import tomllib
+
+            data = tomllib.loads(config_path.read_text())
+            providers = data.get("providers", [])
+            mistral = next((p for p in providers if p.get("name") == "mistral"), None)
+            assert mistral is not None
+            assert "host.containers.internal:18731" in mistral["api_base"]
+
+    def test_assemble_env_calls_patches(self, workspace, envs_dir, roster):
+        """assemble_container_env must invoke apply_shared_config_patches."""
+        spec = _spec(workspace, envs_dir)
+        with patch(
+            "terok_executor.credentials.proxy_config.apply_shared_config_patches"
+        ) as m_patches:
+            assemble_container_env(spec, roster, proxy_bypass=True)
+
+        m_patches.assert_called_once_with(roster, envs_dir)
+
+    def test_patches_idempotent(self, roster, tmp_path):
+        """Calling apply_shared_config_patches twice doesn't corrupt the file."""
+        from terok_executor.credentials.proxy_config import apply_shared_config_patches
+
+        vibe_dir = tmp_path / "_vibe-config"
+        vibe_dir.mkdir()
+
+        with (
+            patch("terok_sandbox.SandboxConfig"),
+            patch("terok_sandbox.get_proxy_port", return_value=18731),
+        ):
+            apply_shared_config_patches(roster, tmp_path)
+            apply_shared_config_patches(roster, tmp_path)
+
+        config_path = vibe_dir / "config.toml"
+        if config_path.exists():
+            import tomllib
+
+            data = tomllib.loads(config_path.read_text())
+            providers = data.get("providers", [])
+            # Should have exactly one mistral entry, not duplicated.
+            mistral_entries = [p for p in providers if p.get("name") == "mistral"]
+            assert len(mistral_entries) == 1
+
+
 class TestSharedConfigMountsUnit:
     """Unit tests for the internal shared mount builder."""
 
