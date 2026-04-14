@@ -2701,7 +2701,7 @@ terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/downloa
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/port-registry-v3"
-resolved_reference = "7bfe6037d27507caad0e0648eecff2f6df3e0483"
+resolved_reference = "910f2d93dbc54cba787de3d57e6df0120f84270d"
 
 [[package]]
 name = "terok-shield"
