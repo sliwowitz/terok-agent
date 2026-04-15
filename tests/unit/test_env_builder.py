@@ -563,7 +563,7 @@ class TestCredentialProxy:
             result = assemble_container_env(spec, roster, caller_manages_proxy=False)
 
         assert "TEROK_SSH_AGENT_TOKEN" in result.env
-        assert "TEROK_SSH_AGENT_SOCKET" in result.env
+        assert result.env["TEROK_SSH_AGENT_SOCKET"] == "/run/terok/ssh-agent.sock"
         assert "TEROK_SSH_AGENT_PORT" not in result.env
 
     def test_proxy_no_ssh_keys_omits_token(self, workspace, envs_dir, roster, tmp_path):
