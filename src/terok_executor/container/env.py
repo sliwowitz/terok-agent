@@ -30,15 +30,15 @@ from typing import TYPE_CHECKING, Literal
 
 from terok_sandbox import Sharing, VolumeSpec
 
+_CONTAINER_RUNTIME_DIR = "/run/terok"
+"""Container-side mount point — must match :data:`terok_sandbox.CONTAINER_RUNTIME_DIR`."""
+
 if TYPE_CHECKING:
     from terok_sandbox import CredentialDB, SandboxConfig
 
     from terok_executor.roster.loader import AgentRoster
 
 _logger = logging.getLogger(__name__)
-
-_CONTAINER_RUNTIME_DIR = "/run/terok"
-"""Container-side mount point for the host runtime directory (socket mode)."""
 
 
 # ── Vocabulary ──
