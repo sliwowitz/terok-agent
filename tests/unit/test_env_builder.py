@@ -45,6 +45,20 @@ def _make_proxy_db(tmp_path: Path, cred_name: str = "claude", cred_data: dict | 
     return cfg
 
 
+def _make_proxy_db_with_ssh_keys(tmp_path: Path, scope: str = "myproj"):
+    """Return a SandboxConfig with credential DB and SSH keys for *scope*."""
+    import json
+
+    cfg = _make_proxy_db(tmp_path)
+    cfg.credentials_dir.mkdir(parents=True, exist_ok=True)
+    cfg.ssh_keys_json_path.write_text(
+        json.dumps(
+            {scope: [{"private_key": "/tmp/terok-testing/k", "public_key": "ssh-ed25519 AAAA"}]}
+        )
+    )
+    return cfg
+
+
 @pytest.fixture
 def roster():
     """Return the live agent roster (loaded from bundled YAML)."""
@@ -513,20 +527,7 @@ class TestCredentialProxy:
 
     def test_proxy_injects_ssh_agent_token(self, workspace, envs_dir, roster, tmp_path):
         """SSH agent token injected when scope has valid keys in ssh-keys.json."""
-        import json
-
-        cfg = _make_proxy_db(tmp_path)
-        cfg.credentials_dir.mkdir(parents=True, exist_ok=True)
-        cfg.ssh_keys_json_path.write_text(
-            json.dumps(
-                {
-                    "myproj": [
-                        {"private_key": "/tmp/terok-testing/k", "public_key": "ssh-ed25519 AAAA"}
-                    ]
-                }
-            )
-        )
-
+        cfg = _make_proxy_db_with_ssh_keys(tmp_path)
         spec = _spec(workspace, envs_dir, credential_scope="myproj")
         with (
             patch("terok_sandbox.is_proxy_socket_active", return_value=True),
@@ -541,20 +542,7 @@ class TestCredentialProxy:
 
     def test_proxy_ssh_agent_socket_transport(self, workspace, envs_dir, roster, tmp_path):
         """Socket transport injects TEROK_SSH_AGENT_SOCKET instead of _PORT."""
-        import json
-
-        cfg = _make_proxy_db(tmp_path)
-        cfg.credentials_dir.mkdir(parents=True, exist_ok=True)
-        cfg.ssh_keys_json_path.write_text(
-            json.dumps(
-                {
-                    "myproj": [
-                        {"private_key": "/tmp/terok-testing/k", "public_key": "ssh-ed25519 AAAA"}
-                    ]
-                }
-            )
-        )
-
+        cfg = _make_proxy_db_with_ssh_keys(tmp_path)
         spec = _spec(workspace, envs_dir, credential_scope="myproj", proxy_transport="socket")
         with (
             patch("terok_sandbox.is_proxy_socket_active", return_value=True),

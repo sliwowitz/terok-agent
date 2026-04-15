@@ -2701,7 +2701,7 @@ terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/downloa
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/socket-transport"
-resolved_reference = "0abda65d70067ac4a3cddf467699d94d7fee93b2"
+resolved_reference = "9ea4198a5870311894e886f937d3f1ebebb6b892"
 
 [[package]]
 name = "terok-shield"
