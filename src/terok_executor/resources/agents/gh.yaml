@@ -5,7 +5,7 @@ kind: tool
 label: GitHub CLI
 binary: gh
 
-credential_proxy:
+vault:
   route_prefix: gh
   upstream: https://api.github.com
   auth_header: Authorization

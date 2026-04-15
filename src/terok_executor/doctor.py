@@ -5,7 +5,8 @@
 
 Contributes domain-specific checks to the layered doctor protocol
 (``terok_sandbox.doctor``): socat bridge liveness, credential file
-integrity in shared mounts, and phantom token / base URL verification.
+integrity in shared mounts, and phantom token / base URL verification
+for the vault.
 
 The checks are returned as :class:`DoctorCheck` specs — probe commands
 + evaluate callables — that the top-level orchestrator (``terok sickbay``)
@@ -46,13 +47,13 @@ _REAL_KEY_PREFIXES = ("sk-ant-", "sk-", "gho_", "ghp_", "ghs_", "glpat-")
 def agent_doctor_checks(
     roster: AgentRoster,
     *,
-    proxy_port: int | None = None,
+    token_broker_port: int | None = None,
 ) -> list[DoctorCheck]:
     """Return agent-level health checks for in-container diagnostics.
 
     Args:
         roster: The loaded agent roster.
-        proxy_port: Credential proxy TCP port. Required for base URL checks;
+        token_broker_port: Vault TCP port. Required for base URL checks;
             if ``None``, base URL checks are skipped.
 
     Returns:
@@ -64,8 +65,8 @@ def agent_doctor_checks(
     ]
     checks.extend(_make_credential_file_checks(roster))
     checks.extend(_make_phantom_token_checks(roster))
-    if proxy_port is not None:
-        checks.extend(_make_base_url_checks(roster, proxy_port))
+    if token_broker_port is not None:
+        checks.extend(_make_base_url_checks(roster, token_broker_port))
     return checks
 
 
@@ -73,7 +74,7 @@ def agent_doctor_checks(
 
 
 def _make_ssh_bridge_check() -> DoctorCheck:
-    """Check that the SSH agent socat bridge is alive inside the container."""
+    """Check that the SSH signer socat bridge is alive inside the container."""
 
     def _eval(rc: int, stdout: str, stderr: str) -> CheckVerdict:
         """Evaluate bridge liveness probe."""
@@ -101,7 +102,7 @@ def _make_ssh_bridge_check() -> DoctorCheck:
 
 
 def _make_gh_proxy_bridge_check() -> DoctorCheck:
-    """Check that the gh credential proxy socat bridge is alive."""
+    """Check that the gh vault socat bridge is alive."""
 
     def _eval(rc: int, stdout: str, stderr: str) -> CheckVerdict:
         """Evaluate bridge liveness probe."""
@@ -136,7 +137,7 @@ def _make_gh_proxy_bridge_check() -> DoctorCheck:
 def _make_credential_file_checks(roster: AgentRoster) -> list[DoctorCheck]:
     """Check known credential files in shared mounts for leaked real secrets."""
     checks: list[DoctorCheck] = []
-    for name, route in roster.proxy_routes.items():
+    for name, route in roster.vault_routes.items():
         if not route.credential_file:
             continue
         auth = roster.auth_providers.get(name)
@@ -196,7 +197,7 @@ def _make_phantom_token_checks(roster: AgentRoster) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
     seen_vars: set[str] = set()
 
-    for name, route in roster.proxy_routes.items():
+    for name, route in roster.vault_routes.items():
         # Collect all phantom env vars (api_key + oauth types)
         env_vars = list(route.phantom_env.keys()) + list(route.oauth_phantom_env.keys())
         for var in env_vars:
@@ -242,13 +243,13 @@ def _make_phantom_token_checks(roster: AgentRoster) -> list[DoctorCheck]:
 # ---------------------------------------------------------------------------
 
 
-def _make_base_url_checks(roster: AgentRoster, proxy_port: int) -> list[DoctorCheck]:
-    """Verify base URL env vars point to the credential proxy, not upstream."""
+def _make_base_url_checks(roster: AgentRoster, token_broker_port: int) -> list[DoctorCheck]:
+    """Verify base URL env vars point to the vault, not upstream."""
     checks: list[DoctorCheck] = []
     seen_vars: set[str] = set()
-    expected_host = f"host.containers.internal:{proxy_port}"
+    expected_host = f"host.containers.internal:{token_broker_port}"
 
-    for name, route in roster.proxy_routes.items():
+    for name, route in roster.vault_routes.items():
         if not route.base_url_env:
             continue
         var = route.base_url_env

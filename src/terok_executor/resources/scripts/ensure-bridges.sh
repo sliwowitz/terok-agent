@@ -6,8 +6,8 @@
 # Idempotent socat bridge launcher for container ↔ host-side services.
 #
 # Manages four bridges:
-#   1. SSH agent   — UNIX socket → ssh-agent-bridge.sh → TCP or host socket
-#   2. gh proxy    — UNIX socket → TCP (plain relay to credential proxy)
+#   1. SSH signer  — UNIX socket → ssh-agent-bridge.sh → TCP or host socket
+#   2. gh proxy    — UNIX socket → TCP (plain relay to token broker)
 #   3. Claude proxy — UNIX socket → TCP (enables OAuth subscription mode)
 #   4. Gate server — TCP listener → host UNIX socket (git HTTP-over-socket)
 #
@@ -30,11 +30,11 @@ _terok_bridge_alive() {
   [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null
 }
 
-# ── SSH agent bridge ─────────────────────────────────────────────────────
-# Requires a phantom token.  Transport: TEROK_SSH_AGENT_SOCKET (mounted
-# host socket) or TEROK_SSH_AGENT_PORT (TCP to host loopback).
-if [[ -n "${TEROK_SSH_AGENT_TOKEN:-}" ]] \
-   && { [[ -n "${TEROK_SSH_AGENT_SOCKET:-}" ]] || [[ -n "${TEROK_SSH_AGENT_PORT:-}" ]]; } \
+# ── SSH signer bridge ────────────────────────────────────────────────────
+# Requires a phantom token.  Transport: TEROK_SSH_SIGNER_SOCKET (mounted
+# host socket) or TEROK_SSH_SIGNER_PORT (TCP to host loopback).
+if [[ -n "${TEROK_SSH_SIGNER_TOKEN:-}" ]] \
+   && { [[ -n "${TEROK_SSH_SIGNER_SOCKET:-}" ]] || [[ -n "${TEROK_SSH_SIGNER_PORT:-}" ]]; } \
    && command -v socat >/dev/null 2>&1 \
    && ! _terok_bridge_alive "$_TEROK_PIDDIR/ssh-agent.pid"; then
   rm -f /tmp/ssh-agent.sock
@@ -43,25 +43,25 @@ if [[ -n "${TEROK_SSH_AGENT_TOKEN:-}" ]] \
   export SSH_AUTH_SOCK=/tmp/ssh-agent.sock
 fi
 
-# ── gh credential proxy bridge ───────────────────────────────────────────
-if [[ -n "${TEROK_PROXY_PORT:-}" ]] && [[ -n "${GH_TOKEN:-}" ]] \
+# ── gh token broker bridge ───────────────────────────────────────────────
+if [[ -n "${TEROK_TOKEN_BROKER_PORT:-}" ]] && [[ -n "${GH_TOKEN:-}" ]] \
    && command -v socat >/dev/null 2>&1 \
    && ! _terok_bridge_alive "$_TEROK_PIDDIR/gh-proxy.pid"; then
   rm -f /tmp/terok-gh-proxy.sock
   socat UNIX-LISTEN:/tmp/terok-gh-proxy.sock,fork \
-    TCP:host.containers.internal:"${TEROK_PROXY_PORT}" &
+    TCP:host.containers.internal:"${TEROK_TOKEN_BROKER_PORT}" &
   echo $! > "$_TEROK_PIDDIR/gh-proxy.pid"
 fi
 
-# ── Claude credential proxy bridge (ANTHROPIC_UNIX_SOCKET transport) ────
-# Routes Claude API traffic through the credential proxy via a Unix socket
+# ── Claude token broker bridge (ANTHROPIC_UNIX_SOCKET transport) ────────
+# Routes Claude API traffic through the token broker via a Unix socket
 # instead of ANTHROPIC_BASE_URL (enables OAuth subscription mode in Claude Code).
-if [[ -n "${TEROK_PROXY_PORT:-}" ]] && [[ -n "${ANTHROPIC_UNIX_SOCKET:-}" ]] \
+if [[ -n "${TEROK_TOKEN_BROKER_PORT:-}" ]] && [[ -n "${ANTHROPIC_UNIX_SOCKET:-}" ]] \
    && command -v socat >/dev/null 2>&1 \
    && ! _terok_bridge_alive "$_TEROK_PIDDIR/claude-proxy.pid"; then
   rm -f "${ANTHROPIC_UNIX_SOCKET}"
   socat UNIX-LISTEN:"${ANTHROPIC_UNIX_SOCKET}",fork \
-    TCP:host.containers.internal:"${TEROK_PROXY_PORT}" &
+    TCP:host.containers.internal:"${TEROK_TOKEN_BROKER_PORT}" &
   echo $! > "$_TEROK_PIDDIR/claude-proxy.pid"
 fi
 

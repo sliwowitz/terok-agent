@@ -74,7 +74,7 @@ user definitions with bundled ones using deep merge for dicts and
 `_inherit` splicing for lists.
 
 See the bundled definitions in `resources/agents/` for the schema:
-binary, headless flags, credential proxy routing, auth modes, and git
+binary, headless flags, vault routing, auth modes, and git
 identity.
 
 ## Git identity

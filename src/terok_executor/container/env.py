@@ -4,8 +4,8 @@
 """Assembles container environment variables and volume mounts for agent launches.
 
 Both ``terok-executor run`` (standalone) and ``terok`` (project orchestrator)
-construct identical container environments — shared config mounts, credential
-proxy tokens, git identity, unrestricted-mode flags.  This module provides
+construct identical container environments — shared config mounts, vault
+tokens, git identity, unrestricted-mode flags.  This module provides
 the canonical assembly function so that logic lives in one place.
 
 Usage::
@@ -96,17 +96,17 @@ class ContainerEnvSpec:
     human_email: str = "nobody@localhost"
     """Human operator email (→ ``HUMAN_GIT_EMAIL``)."""
 
-    # -- Credential proxy --------------------------------------------------
+    # -- Vault --------------------------------------------------
 
     credential_scope: str = "standalone"
-    """Scope for proxy token creation.  terok passes ``project.id``."""
+    """Scope for vault token creation.  terok passes ``project.id``."""
 
-    proxy_transport: Literal["direct", "socket"] = "direct"
-    """Proxy transport mode: ``"direct"`` (HTTP base URL) or ``"socket"``
-    (Unix socket path via :attr:`~CredentialProxyRoute.socket_env`)."""
+    vault_transport: Literal["direct", "socket"] = "direct"
+    """Vault transport mode: ``"direct"`` (HTTP base URL) or ``"socket"``
+    (Unix socket path via :attr:`~VaultRoute.socket_env`)."""
 
-    proxy_required: bool = False
-    """When ``True``, raise ``SystemExit`` if the credential proxy is
+    vault_required: bool = False
+    """When ``True``, raise ``SystemExit`` if the vault is
     unreachable.  When ``False`` (default), soft-fail to empty env."""
 
     scan_leaked_creds: bool = False
@@ -172,7 +172,7 @@ def assemble_container_env(
     spec: ContainerEnvSpec,
     roster: AgentRoster,
     *,
-    caller_manages_proxy: bool = False,
+    caller_manages_vault: bool = False,
 ) -> ContainerEnvResult:
     """Assemble container environment variables and volume mounts.
 
@@ -182,12 +182,12 @@ def assemble_container_env(
 
     Args:
         spec: What the caller wants — all host↔container contract fields.
-        roster: Agent roster for shared mounts, proxy routes, provider identity.
-        caller_manages_proxy: When ``True``, skip phantom-token injection
-            here — the caller injects richer proxy tokens itself (e.g.
-            terok's per-provider OAuth tiers, socket transport, SSH agent).
+        roster: Agent roster for shared mounts, vault routes, provider identity.
+        caller_manages_vault: When ``True``, skip phantom-token injection
+            here — the caller injects richer vault tokens itself (e.g.
+            terok's per-provider OAuth tiers, socket transport, SSH signer).
             Shared config patches (``api_base`` rewrites) still run because
-            the credential proxy **is** in use; only token injection is
+            the vault **is** in use; only token injection is
             delegated.
 
     Returns:
@@ -235,32 +235,32 @@ def assemble_container_env(
     # 8b. Re-apply proxy config patches (idempotent — ensures shared mount
     #     dirs contain correct proxy URLs even after state wipe).
     #
-    #     NOT gated by caller_manages_proxy: that flag only skips
+    #     NOT gated by caller_manages_vault: that flag only skips
     #     phantom-token injection here because the caller (terok) injects
-    #     richer tokens itself — the credential proxy is still in use and
+    #     richer tokens itself — the vault is still in use and
     #     agents still need their config files rewritten to route through
     #     it.  Providers whose credential is exposed directly (Claude OAuth
     #     tier 3) are safe because they have no shared_config_patch.
-    from terok_executor.credentials.proxy_config import apply_shared_config_patches
+    from terok_executor.credentials.vault_config import apply_shared_config_patches
 
     apply_shared_config_patches(roster, mounts_base)
 
-    # 9. Credential proxy
-    if not caller_manages_proxy:
+    # 9. Vault
+    if not caller_manages_vault:
         env.update(
-            _inject_proxy_tokens(
+            _inject_vault_tokens(
                 roster,
                 spec.credential_scope,
                 spec.task_id,
-                proxy_transport=spec.proxy_transport,
-                proxy_required=spec.proxy_required,
+                vault_transport=spec.vault_transport,
+                vault_required=spec.vault_required,
             )
         )
 
-    # 9b. Leaked credential scan (runs regardless of caller_manages_proxy —
+    # 9b. Leaked credential scan (runs regardless of caller_manages_vault —
     #     the shared mounts exist either way)
     if spec.scan_leaked_creds:
-        from terok_executor.credentials.proxy_commands import scan_leaked_credentials
+        from terok_executor.credentials.vault_commands import scan_leaked_credentials
 
         leaked = scan_leaked_credentials(mounts_base)
         for provider, path in leaked:
@@ -334,71 +334,71 @@ def _shared_config_mounts(roster: AgentRoster, mounts_base: Path) -> list[Volume
     return specs
 
 
-def _inject_proxy_tokens(
+def _inject_vault_tokens(
     roster: AgentRoster,
     scope: str,
     task_id: str,
     *,
-    proxy_transport: Literal["direct", "socket"] = "direct",
-    proxy_required: bool = False,
+    vault_transport: Literal["direct", "socket"] = "direct",
+    vault_required: bool = False,
 ) -> dict[str, str]:
-    """Inject credential proxy phantom tokens if the proxy is running.
+    """Inject vault phantom tokens if the vault is running.
 
     Handles three orthogonal concerns:
 
     - **Auth**: selects ``phantom_env`` vs ``oauth_phantom_env`` based on the
       stored credential type (Phase 1).
     - **Transport**: injects ``socket_env``/``socket_path`` when
-      *proxy_transport* is ``"socket"`` (Phase 2).
-    - **SSH agent**: creates a phantom token for the SSH agent proxy when the
+      *vault_transport* is ``"socket"`` (Phase 2).
+    - **SSH signer**: creates a phantom token for the SSH signer when the
       scope has registered SSH keys (Phase 3).
 
-    When *proxy_required* is ``False`` (standalone default), soft-fails to
+    When *vault_required* is ``False`` (standalone default), soft-fails to
     empty dict.  When ``True`` (terok project mode), raises ``SystemExit``
-    if the proxy is unreachable.
+    if the vault is unreachable.
     """
     from terok_sandbox import (
         CredentialDB,
         SandboxConfig,
-        get_proxy_port,
-        get_ssh_agent_port,
-        is_proxy_running,
-        is_proxy_socket_active,
+        get_ssh_signer_port,
+        get_token_broker_port,
+        is_vault_running,
+        is_vault_socket_active,
     )
 
     cfg = SandboxConfig()
-    if not (is_proxy_socket_active() or is_proxy_running(cfg)):
-        if proxy_required:
+    if not (is_vault_socket_active() or is_vault_running(cfg)):
+        if vault_required:
             raise SystemExit(
-                "Credential proxy is not running.\n\n"
+                "Vault is not running.\n\n"
                 "Start it with:\n"
-                "  terok credential-proxy install   (systemd socket activation)\n"
-                "  terok credential-proxy start     (manual daemon)"
+                "  terok vault install   (systemd socket activation)\n"
+                "  terok vault start     (manual daemon)"
             )
         return {}
 
-    proxy_routes = roster.proxy_routes
+    vault_routes = roster.vault_routes
     try:
-        db = CredentialDB(cfg.proxy_db_path)
+        db = CredentialDB(cfg.db_path)
     except Exception:
-        _logger.exception("Credential proxy DB unavailable")
-        if proxy_required:
+        _logger.exception("Vault DB unavailable")
+        if vault_required:
             raise SystemExit(
-                "Credential proxy DB unavailable. Check logs for details.\n\n"
+                "Vault DB unavailable. Check logs for details.\n\n"
                 "Start it with:\n"
-                "  terok credential-proxy install   (systemd socket activation)\n"
-                "  terok credential-proxy start     (manual daemon)"
+                "  terok vault install   (systemd socket activation)\n"
+                "  terok vault start     (manual daemon)"
             ) from None
         return {}
 
     try:
         credential_set = "default"
         stored = set(db.list_credentials(credential_set))
-        routed = stored & proxy_routes.keys()
+        routed = stored & vault_routes.keys()
 
-        # SSH agent token is independent of provider credentials — a project
-        # with SSH keys but no API creds should still get TEROK_SSH_AGENT_*.
-        ssh_token = _load_ssh_agent_token(db, cfg, scope, task_id)
+        # SSH signer token is independent of provider credentials — a project
+        # with SSH keys but no API creds should still get TEROK_SSH_SIGNER_*.
+        ssh_token = _load_ssh_signer_token(db, cfg, scope, task_id)
 
         if not routed and not ssh_token:
             return {}
@@ -408,27 +408,27 @@ def _inject_proxy_tokens(
         for name in routed:
             cred = db.load_credential(credential_set, name)
             credential_types[name] = (cred.get("type") if cred else None) or "api_key"
-            tokens[name] = db.create_proxy_token(scope, task_id, credential_set, name)
+            tokens[name] = db.create_token(scope, task_id, credential_set, name)
 
-        port = get_proxy_port(cfg)
+        port = get_token_broker_port(cfg)
     except Exception:
-        _logger.exception("Credential proxy token injection failed")
-        if proxy_required:
+        _logger.exception("Vault token injection failed")
+        if vault_required:
             raise SystemExit(
-                "Credential proxy token injection failed. Check logs for details.\n\n"
+                "Vault token injection failed. Check logs for details.\n\n"
                 "Start it with:\n"
-                "  terok credential-proxy install   (systemd socket activation)\n"
-                "  terok credential-proxy start     (manual daemon)"
+                "  terok vault install   (systemd socket activation)\n"
+                "  terok vault start     (manual daemon)"
             ) from None
         return {}
     finally:
         db.close()
 
-    use_socket = proxy_transport == "socket"
+    use_socket = vault_transport == "socket"
     proxy_base = f"http://host.containers.internal:{port}"
     env: dict[str, str] = {}
 
-    for name, route in proxy_routes.items():
+    for name, route in vault_routes.items():
         if name not in routed:
             continue
 
@@ -454,18 +454,18 @@ def _inject_proxy_tokens(
             env["API_PROTOCOL"] = "http"
 
     if routed:
-        env["TEROK_PROXY_PORT"] = str(port)
+        env["TEROK_TOKEN_BROKER_PORT"] = str(port)
 
     if ssh_token:
-        env["TEROK_SSH_AGENT_TOKEN"] = ssh_token
+        env["TEROK_SSH_SIGNER_TOKEN"] = ssh_token
         if use_socket:
-            env["TEROK_SSH_AGENT_SOCKET"] = (
-                f"{_CONTAINER_RUNTIME_DIR}/{cfg.ssh_agent_socket_path.name}"
+            env["TEROK_SSH_SIGNER_SOCKET"] = (
+                f"{_CONTAINER_RUNTIME_DIR}/{cfg.ssh_signer_socket_path.name}"
             )
         else:
-            env["TEROK_SSH_AGENT_PORT"] = str(get_ssh_agent_port(cfg))
+            env["TEROK_SSH_SIGNER_PORT"] = str(get_ssh_signer_port(cfg))
 
-    _logger.debug("Credential proxy: injected %d env vars for %s", len(env), routed)
+    _logger.debug("Vault: injected %d env vars for %s", len(env), routed)
     return env
 
 
@@ -483,10 +483,10 @@ def _load_ssh_keys_json(path: Path) -> dict:
         return {}
 
 
-def _load_ssh_agent_token(
+def _load_ssh_signer_token(
     db: CredentialDB, cfg: SandboxConfig, scope: str, task_id: str
 ) -> str | None:
-    """Create an SSH agent phantom token if *scope* has valid keys registered."""
+    """Create an SSH signer phantom token if *scope* has valid keys registered."""
     ssh_keys = _load_ssh_keys_json(cfg.ssh_keys_json_path)
     ssh_entry = ssh_keys.get(scope)
     if not isinstance(ssh_entry, list):
@@ -500,5 +500,5 @@ def _load_ssh_agent_token(
             )
             return None
     if any(e.get("private_key") and e.get("public_key") for e in ssh_entry):
-        return db.create_proxy_token(scope, task_id, scope, "ssh")
+        return db.create_token(scope, task_id, scope, "ssh")
     return None

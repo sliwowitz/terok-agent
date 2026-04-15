@@ -196,7 +196,7 @@ def store_api_key(
     from terok_sandbox import CredentialDB, SandboxConfig
 
     cfg = SandboxConfig()
-    db = CredentialDB(cfg.proxy_db_path)
+    db = CredentialDB(cfg.db_path)
     try:
         db.store_credential(credential_set, provider, {"type": "api_key", "key": api_key})
         print(f"API key stored for {provider} (set: {credential_set})")
@@ -336,8 +336,8 @@ def _capture_credentials(
     but does not raise — the auth flow succeeded, the user can retry.
 
     When *expose_token* is ``True`` for Claude OAuth (tier 3), the credential
-    is **not** stored in the proxy DB — Claude manages its own token lifecycle
-    directly, and proxy-side refresh would invalidate the exposed token.
+    is **not** stored in the vault DB — Claude manages its own token lifecycle
+    directly, and vault-side refresh would invalidate the exposed token.
     """
     from .extractors import extract_credential
 
@@ -366,13 +366,13 @@ def _capture_credentials(
     exposed_directly = expose_token and is_claude_oauth
 
     if exposed_directly:
-        print(f"\nCredentials for {provider_name} bypassing proxy DB (exposed directly)")
+        print(f"\nCredentials for {provider_name} bypassing vault DB (exposed directly)")
     else:
         try:
             from terok_sandbox import CredentialDB, SandboxConfig
 
             cfg = SandboxConfig()
-            db = CredentialDB(cfg.proxy_db_path)
+            db = CredentialDB(cfg.db_path)
             try:
                 db.store_credential(credential_set, provider_name, cred_data)
                 print(f"\nCredentials captured for {provider_name} (set: {credential_set})")
@@ -381,11 +381,11 @@ def _capture_credentials(
         except Exception as exc:
             print(
                 f"\nWarning [auth]: failed to store credentials for {provider_name} "
-                f"in proxy DB: {type(exc).__name__}: {exc}",
+                f"in vault DB: {type(exc).__name__}: {exc}",
                 file=sys.stderr,
             )
             print(
-                "The auth flow completed but credentials were not saved to the proxy DB.",
+                "The auth flow completed but credentials were not saved to the vault DB.",
                 file=sys.stderr,
             )
             return
@@ -409,12 +409,12 @@ def _capture_credentials(
             print(
                 "\nNote: Claude OAuth token is EXPOSED in the shared mount."
                 "\n      Every task container can read the real token."
-                "\n      The credential proxy does NOT protect it."
+                "\n      The vault does NOT protect it."
             )
         else:
             print(
                 "\nNote: Claude OAuth credential is shared across all task containers."
-                "\n      API calls are routed through the credential proxy — the real"
+                "\n      API calls are routed through the vault — the real"
                 "\n      token stays on the host."
             )
 

@@ -5,7 +5,7 @@ kind: tool
 label: SonarCloud
 binary: sonar-scanner
 
-credential_proxy:
+vault:
   route_prefix: sonar
   upstream: https://sonarcloud.io
   auth_header: Authorization

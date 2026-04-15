@@ -23,7 +23,7 @@ session:
 capabilities:
   log_format: plain
 
-credential_proxy:
+vault:
   route_prefix: codex
   upstream: https://api.openai.com
   auth_header: Authorization

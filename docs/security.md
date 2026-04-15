@@ -1,7 +1,7 @@
 # Security
 
 terok-executor isolates each agent behind four layers: an egress firewall,
-a credential proxy, optional restricted mode, and rootless containers.
+a vault, optional restricted mode, and rootless containers.
 
 ## Egress firewall
 
@@ -16,15 +16,15 @@ terok-executor run claude . -p "…"         # firewall on (default)
 terok-executor run claude . --no-gate -p "…"  # disable for development
 ```
 
-## Credential proxy
+## Vault
 
 No real API keys, OAuth tokens, or SSH private keys enter containers.
 Instead, each container receives per-task **phantom tokens**. A host-side
-proxy ([terok-sandbox](https://terok-ai.github.io/terok-sandbox/))
+token broker ([terok-sandbox](https://terok-ai.github.io/terok-sandbox/))
 resolves phantom tokens to real credentials and forwards requests
 upstream over TLS.
 
-SSH keys are handled the same way: a host-side SSH agent proxy lets
+SSH keys are handled the same way: a host-side SSH signer lets
 containers sign git operations without the private key crossing the
 container boundary.
 
@@ -32,18 +32,18 @@ This means a compromised agent cannot read, copy, or exfiltrate real
 credentials — they exist only on the host and are never written to
 container-accessible mounts.
 
-See [Credential proxy internals](credential-proxy.md) for the full
+See [Vault internals](vault.md) for the full
 architecture, per-agent routing table, and YAML configuration.
 
-### Managing the proxy
+### Managing the vault
 
 ```bash
-terok-executor proxy status      # health check
-terok-executor proxy start       # start manually
-terok-executor proxy stop        # stop
-terok-executor proxy install     # install systemd unit
-terok-executor proxy routes      # show active routes
-terok-executor proxy clean       # remove stale tokens
+terok-executor vault status      # health check
+terok-executor vault start       # start manually
+terok-executor vault stop        # stop
+terok-executor vault install     # install systemd unit
+terok-executor vault routes      # show active routes
+terok-executor vault clean       # remove stale tokens
 ```
 
 ## Restricted mode

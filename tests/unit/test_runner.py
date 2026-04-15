@@ -379,27 +379,27 @@ class TestGateIntegration:
         assert spec.env.get("CODE_REPO") == "git@github.com:user/repo.git"
 
 
-class TestCredentialProxyEnv:
-    """Verify credential proxy integration (now via env_builder).
+class TestVaultEnv:
+    """Verify vault integration (now via env_builder).
 
     Detailed token injection tests are in test_env_builder.py.
     These tests verify the runner delegates correctly.
     """
 
-    def test_proxy_not_running_no_tokens_in_run(self, tmp_path: Path) -> None:
-        """When proxy is not running, headless run has no TEROK_PROXY_PORT."""
+    def test_vault_not_running_no_tokens_in_run(self, tmp_path: Path) -> None:
+        """When vault is not running, headless run has no TEROK_TOKEN_BROKER_PORT."""
         sandbox = _mock_sandbox()
         runner = AgentRunner(sandbox=sandbox)
 
         with (
             patch.object(runner, "_ensure_images", return_value="terok-l1-cli:test"),
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=False),
+            patch("terok_sandbox.is_vault_socket_active", return_value=False),
+            patch("terok_sandbox.is_vault_running", return_value=False),
         ):
             runner.run_headless("claude", str(tmp_path), prompt="test", follow=False)
 
         spec = sandbox.run.call_args[0][0]
-        assert "TEROK_PROXY_PORT" not in spec.env
+        assert "TEROK_TOKEN_BROKER_PORT" not in spec.env
 
 
 class TestCommandRegistry:

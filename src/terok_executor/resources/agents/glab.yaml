@@ -5,7 +5,7 @@ kind: tool
 label: GitLab CLI
 binary: glab
 
-credential_proxy:
+vault:
   route_prefix: gl
   upstream: https://gitlab.com
   auth_header: PRIVATE-TOKEN

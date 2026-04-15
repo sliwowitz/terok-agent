@@ -30,7 +30,7 @@ class TestCaptureCredentials:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials("claude", tmp_path, "default")
 
         # Verify it's in the DB
@@ -48,7 +48,7 @@ class TestCaptureCredentials:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials("blablador", tmp_path, "default")
 
         from terok_sandbox import CredentialDB
@@ -94,7 +94,7 @@ class TestCaptureCredentials:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials("kisski", tmp_path, "work-project")
 
         from terok_sandbox import CredentialDB
@@ -282,7 +282,7 @@ class TestCaptureAppliesPostCaptureState:
         mounts = tmp_path / "mounts"
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, auth_provider=provider
             )
@@ -311,7 +311,7 @@ class TestCaptureAppliesPostCaptureState:
         mounts = tmp_path / "mounts"
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, auth_provider=provider
             )
@@ -347,7 +347,7 @@ class TestCaptureAppliesPostCaptureState:
 
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             # Should NOT raise — error is caught and printed
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, auth_provider=provider
@@ -384,7 +384,7 @@ class TestCaptureWritesCredentialsFile:
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials("claude", tmp_path, "default", mounts_base=mounts)
 
         cred_file = mounts / "_claude-config" / ".credentials.json"
@@ -400,7 +400,7 @@ class TestCaptureWritesCredentialsFile:
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials("claude", tmp_path, "default", mounts_base=mounts)
 
         assert not (mounts / "_claude-config" / ".credentials.json").exists()
@@ -414,7 +414,7 @@ class TestCaptureWritesCredentialsFile:
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials("codex", tmp_path, "default", mounts_base=mounts)
 
         assert not (mounts / "_claude-config").exists()
@@ -456,7 +456,7 @@ class TestCaptureWithExposeToken:
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, expose_token=True
             )
@@ -475,7 +475,7 @@ class TestCaptureWithExposeToken:
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, expose_token=False
             )
@@ -491,7 +491,7 @@ class TestCaptureWithExposeToken:
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, expose_token=True
             )
@@ -499,15 +499,15 @@ class TestCaptureWithExposeToken:
         out = capsys.readouterr().out
         assert "EXPOSED" in out
 
-    def test_expose_token_skips_proxy_db(self, tmp_path: Path) -> None:
-        """expose_token=True does NOT store in proxy DB — avoids refresh conflict."""
+    def test_expose_token_skips_vault_db(self, tmp_path: Path) -> None:
+        """expose_token=True does NOT store in vault DB -- avoids refresh conflict."""
         real_creds = {"claudeAiOauth": {"accessToken": "real-tok"}}
         (tmp_path / ".credentials.json").write_text(json.dumps(real_creds))
 
         db_path = tmp_path / "proxy" / "credentials.db"
         mounts = tmp_path / "mounts"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             _capture_credentials(
                 "claude", tmp_path, "default", mounts_base=mounts, expose_token=True
             )
@@ -527,7 +527,7 @@ class TestStoreApiKey:
         """store_api_key writes to the DB without a container."""
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             store_api_key("vibe", "sk-test-key-123")
 
         from terok_sandbox import CredentialDB
@@ -541,7 +541,7 @@ class TestStoreApiKey:
         """store_api_key supports custom credential sets."""
         db_path = tmp_path / "proxy" / "credentials.db"
         with patch("terok_sandbox.SandboxConfig") as mock_cfg_cls:
-            mock_cfg_cls.return_value.proxy_db_path = db_path
+            mock_cfg_cls.return_value.db_path = db_path
             store_api_key("claude", "sk-ant-key", credential_set="work")
 
         from terok_sandbox import CredentialDB

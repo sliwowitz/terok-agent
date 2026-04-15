@@ -26,7 +26,7 @@ session:
 capabilities:
   log_format: plain
 
-credential_proxy:
+vault:
   route_prefix: kisski
   upstream: https://chat-ai.academiccloud.de
   auth_header: Authorization

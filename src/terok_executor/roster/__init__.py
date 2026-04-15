@@ -9,10 +9,10 @@ and to :mod:`.config_stack` for generic layered config resolution.
 
 from .loader import (
     AgentRoster,
-    CredentialProxyRoute,
     MountDef,
     SidecarSpec,
-    ensure_proxy_routes,
+    VaultRoute,
+    ensure_vault_routes,
     get_roster,
     load_roster,
     parse_agent_selection,
@@ -20,10 +20,10 @@ from .loader import (
 
 __all__ = [
     "AgentRoster",
-    "CredentialProxyRoute",
     "MountDef",
     "SidecarSpec",
-    "ensure_proxy_routes",
+    "VaultRoute",
+    "ensure_vault_routes",
     "get_roster",
     "load_roster",
     "parse_agent_selection",

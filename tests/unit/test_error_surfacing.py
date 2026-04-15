@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for warning paths in proxy_config and roster.
+"""Tests for warning paths in vault_config and roster.
 
 Verifies that parse errors in TOML/YAML config files and agent definition
 files are surfaced as warnings on stderr rather than silently swallowed.
@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# proxy_config: _apply_toml_patch warns on invalid TOML
+# vault_config: _apply_toml_patch warns on invalid TOML
 # ---------------------------------------------------------------------------
 
 
@@ -34,7 +34,7 @@ class TestApplyTomlPatchWarning:
             "toml_set": {"api_base": "{proxy_url}/v1"},
         }
 
-        from terok_executor.credentials.proxy_config import _apply_toml_patch
+        from terok_executor.credentials.vault_config import _apply_toml_patch
 
         _apply_toml_patch(config_path, patch_spec, "http://localhost:9999")
 
@@ -62,7 +62,7 @@ class TestApplyTomlPatchWarning:
             "toml_set": {"api_base": "{proxy_url}/v1"},
         }
 
-        from terok_executor.credentials.proxy_config import _apply_toml_patch
+        from terok_executor.credentials.vault_config import _apply_toml_patch
 
         _apply_toml_patch(config_path, patch_spec, "http://localhost:9999")
 
@@ -81,7 +81,7 @@ class TestApplyTomlPatchWarning:
             "toml_set": {"api_base": "{proxy_url}/v1"},
         }
 
-        from terok_executor.credentials.proxy_config import _apply_toml_patch
+        from terok_executor.credentials.vault_config import _apply_toml_patch
 
         _apply_toml_patch(config_path, patch_spec, "http://localhost:9999")
 
@@ -90,7 +90,7 @@ class TestApplyTomlPatchWarning:
 
 
 # ---------------------------------------------------------------------------
-# proxy_config: _apply_yaml_patch warns on invalid YAML
+# vault_config: _apply_yaml_patch warns on invalid YAML
 # ---------------------------------------------------------------------------
 
 
@@ -107,7 +107,7 @@ class TestApplyYamlPatchWarning:
             "yaml_set": {"api_base": "{proxy_url}/v1"},
         }
 
-        from terok_executor.credentials.proxy_config import _apply_yaml_patch
+        from terok_executor.credentials.vault_config import _apply_yaml_patch
 
         _apply_yaml_patch(config_path, patch_spec, "http://localhost:9999")
 
@@ -132,7 +132,7 @@ class TestApplyYamlPatchWarning:
             "yaml_set": {"api_base": "{proxy_url}/v1"},
         }
 
-        from terok_executor.credentials.proxy_config import _apply_yaml_patch
+        from terok_executor.credentials.vault_config import _apply_yaml_patch
 
         _apply_yaml_patch(config_path, patch_spec, "http://localhost:9999")
 
@@ -149,7 +149,7 @@ class TestApplyYamlPatchWarning:
             "yaml_set": {"api_base": "{proxy_url}/v1"},
         }
 
-        from terok_executor.credentials.proxy_config import _apply_yaml_patch
+        from terok_executor.credentials.vault_config import _apply_yaml_patch
 
         _apply_yaml_patch(config_path, patch_spec, "http://localhost:9999")
 

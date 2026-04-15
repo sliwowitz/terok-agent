@@ -18,11 +18,11 @@ from terok_executor.doctor import (
 )
 from terok_executor.roster import get_roster
 
-PROXY_PORT = 18731
+TOKEN_BROKER_PORT = 18731
 
 
 class TestSSHBridgeCheck:
-    """SSH agent socat bridge liveness check."""
+    """SSH signer socat bridge liveness check."""
 
     def test_ok_when_alive(self) -> None:
         check = _make_ssh_bridge_check()
@@ -46,7 +46,7 @@ class TestSSHBridgeCheck:
 
 
 class TestGhProxyBridgeCheck:
-    """gh credential proxy socat bridge liveness check."""
+    """gh token broker socat bridge liveness check."""
 
     def test_ok_when_alive(self) -> None:
         check = _make_gh_proxy_bridge_check()
@@ -77,7 +77,7 @@ class TestCredentialFileChecks:
         # Should have at least one check for providers with credential_file
         providers_with_cred = [
             n
-            for n, r in roster.proxy_routes.items()
+            for n, r in roster.vault_routes.items()
             if r.credential_file and n in roster.auth_providers
         ]
         assert len(checks) == len(providers_with_cred)
@@ -171,33 +171,35 @@ class TestBaseUrlChecks:
 
     def test_generates_checks(self) -> None:
         roster = get_roster()
-        checks = _make_base_url_checks(roster, PROXY_PORT)
+        checks = _make_base_url_checks(roster, TOKEN_BROKER_PORT)
         assert len(checks) > 0
 
     def test_ok_when_routed(self) -> None:
         roster = get_roster()
-        checks = _make_base_url_checks(roster, PROXY_PORT)
+        checks = _make_base_url_checks(roster, TOKEN_BROKER_PORT)
         if checks:
-            verdict = checks[0].evaluate(0, f"http://host.containers.internal:{PROXY_PORT}\n", "")
+            verdict = checks[0].evaluate(
+                0, f"http://host.containers.internal:{TOKEN_BROKER_PORT}\n", ""
+            )
             assert verdict.severity == "ok"
 
     def test_error_when_bypassed(self) -> None:
         roster = get_roster()
-        checks = _make_base_url_checks(roster, PROXY_PORT)
+        checks = _make_base_url_checks(roster, TOKEN_BROKER_PORT)
         if checks:
             verdict = checks[0].evaluate(0, "https://api.anthropic.com\n", "")
             assert verdict.severity == "error"
 
     def test_warn_when_unset(self) -> None:
         roster = get_roster()
-        checks = _make_base_url_checks(roster, PROXY_PORT)
+        checks = _make_base_url_checks(roster, TOKEN_BROKER_PORT)
         if checks:
             verdict = checks[0].evaluate(0, "", "")
             assert verdict.severity == "warn"
 
     def test_no_duplicate_vars(self) -> None:
         roster = get_roster()
-        checks = _make_base_url_checks(roster, PROXY_PORT)
+        checks = _make_base_url_checks(roster, TOKEN_BROKER_PORT)
         vars_checked = [" ".join(c.probe_cmd) for c in checks]
         assert len(vars_checked) == len(set(vars_checked))
 
@@ -207,26 +209,26 @@ class TestAgentDoctorChecks:
 
     def test_includes_bridge_checks(self) -> None:
         roster = get_roster()
-        checks = agent_doctor_checks(roster, proxy_port=PROXY_PORT)
+        checks = agent_doctor_checks(roster, token_broker_port=TOKEN_BROKER_PORT)
         categories = {c.category for c in checks}
         assert "bridge" in categories
 
     def test_includes_mount_checks(self) -> None:
         roster = get_roster()
-        checks = agent_doctor_checks(roster, proxy_port=PROXY_PORT)
+        checks = agent_doctor_checks(roster, token_broker_port=TOKEN_BROKER_PORT)
         categories = {c.category for c in checks}
         assert "mount" in categories
 
     def test_includes_env_checks(self) -> None:
         roster = get_roster()
-        checks = agent_doctor_checks(roster, proxy_port=PROXY_PORT)
+        checks = agent_doctor_checks(roster, token_broker_port=TOKEN_BROKER_PORT)
         categories = {c.category for c in checks}
         assert "env" in categories
 
     def test_skips_base_url_without_port(self) -> None:
         roster = get_roster()
-        checks_with = agent_doctor_checks(roster, proxy_port=PROXY_PORT)
-        checks_without = agent_doctor_checks(roster, proxy_port=None)
+        checks_with = agent_doctor_checks(roster, token_broker_port=TOKEN_BROKER_PORT)
+        checks_without = agent_doctor_checks(roster, token_broker_port=None)
         base_url_with = [c for c in checks_with if "Base URL" in c.label]
         base_url_without = [c for c in checks_without if "Base URL" in c.label]
         assert len(base_url_with) > 0
@@ -234,6 +236,6 @@ class TestAgentDoctorChecks:
 
     def test_all_are_doctor_check_instances(self) -> None:
         roster = get_roster()
-        checks = agent_doctor_checks(roster, proxy_port=PROXY_PORT)
+        checks = agent_doctor_checks(roster, token_broker_port=TOKEN_BROKER_PORT)
         for check in checks:
             assert isinstance(check, DoctorCheck)

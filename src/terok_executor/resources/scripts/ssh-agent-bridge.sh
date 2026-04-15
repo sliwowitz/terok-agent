@@ -5,7 +5,7 @@
 # terok:container — this file is deployed into task containers, not used on the host.
 
 # Relay between an SSH agent client (via socat SYSTEM: stdin/stdout) and
-# the host-side SSH agent proxy, injecting the phantom token handshake
+# the host-side SSH signer, injecting the phantom token handshake
 # as the first bytes on the connection.
 #
 # Called by socat:
@@ -14,33 +14,33 @@
 # stdin/stdout = the SSH client's Unix socket side (provided by socat)
 #
 # Transport is selected by env vars (mutually exclusive):
-#   TEROK_SSH_AGENT_SOCKET - Unix socket path (socket mode, mounted from host)
-#   TEROK_SSH_AGENT_PORT   - TCP port on host.containers.internal (TCP mode)
+#   TEROK_SSH_SIGNER_SOCKET - Unix socket path (socket mode, mounted from host)
+#   TEROK_SSH_SIGNER_PORT   - TCP port on host.containers.internal (TCP mode)
 #
 # Always required:
-#   TEROK_SSH_AGENT_TOKEN  - phantom token for the handshake
+#   TEROK_SSH_SIGNER_TOKEN  - phantom token for the handshake
 
 set -euo pipefail
 
-: "${TEROK_SSH_AGENT_TOKEN:?missing}"
+: "${TEROK_SSH_SIGNER_TOKEN:?missing}"
 
 # Resolve upstream target: socket takes precedence over TCP.
-if [[ -n "${TEROK_SSH_AGENT_SOCKET:-}" ]]; then
-  TARGET="UNIX-CONNECT:${TEROK_SSH_AGENT_SOCKET}"
-elif [[ -n "${TEROK_SSH_AGENT_PORT:-}" ]]; then
-  [[ "${TEROK_SSH_AGENT_PORT}" =~ ^[0-9]+$ ]] || {
-    echo "TEROK_SSH_AGENT_PORT must be numeric" >&2
+if [[ -n "${TEROK_SSH_SIGNER_SOCKET:-}" ]]; then
+  TARGET="UNIX-CONNECT:${TEROK_SSH_SIGNER_SOCKET}"
+elif [[ -n "${TEROK_SSH_SIGNER_PORT:-}" ]]; then
+  [[ "${TEROK_SSH_SIGNER_PORT}" =~ ^[0-9]+$ ]] || {
+    echo "TEROK_SSH_SIGNER_PORT must be numeric" >&2
     exit 2
   }
-  TARGET="TCP:host.containers.internal:${TEROK_SSH_AGENT_PORT}"
+  TARGET="TCP:host.containers.internal:${TEROK_SSH_SIGNER_PORT}"
 else
-  echo "One of TEROK_SSH_AGENT_SOCKET or TEROK_SSH_AGENT_PORT is required" >&2
+  echo "One of TEROK_SSH_SIGNER_SOCKET or TEROK_SSH_SIGNER_PORT is required" >&2
   exit 2
 fi
 
 # Compute 4-byte big-endian length header dynamically — the server-side
 # _read_handshake() accepts any token length 1–1024 and does a DB lookup.
-TOKEN_LEN=${#TEROK_SSH_AGENT_TOKEN}
+TOKEN_LEN=${#TEROK_SSH_SIGNER_TOKEN}
 
 # Send the token handshake, then relay SSH agent traffic bidirectionally.
 {
@@ -48,6 +48,6 @@ TOKEN_LEN=${#TEROK_SSH_AGENT_TOKEN}
   printf "\\x$(printf '%02x' $((TOKEN_LEN >> 16 & 0xFF)))"
   printf "\\x$(printf '%02x' $((TOKEN_LEN >> 8  & 0xFF)))"
   printf "\\x$(printf '%02x' $((TOKEN_LEN       & 0xFF)))"
-  printf '%s' "${TEROK_SSH_AGENT_TOKEN}"
+  printf '%s' "${TEROK_SSH_SIGNER_TOKEN}"
   cat
 } | socat - "${TARGET}"

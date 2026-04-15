@@ -529,7 +529,7 @@ class AgentRunner:
     def _direct_credential_env(self, tool_name: str) -> dict[str, str]:
         """Load the real API key for a sidecar tool and return as env dict.
 
-        Unlike :meth:`_credential_proxy_env` (which creates phantom tokens),
+        Unlike vault phantom-token injection (which creates phantom tokens),
         this injects the actual credential.  Safe because sidecar containers
         have no agent code that could leak it.
         """
@@ -538,7 +538,7 @@ class AgentRunner:
         spec = self.roster.get_sidecar_spec(tool_name)
         cfg = self.sandbox.config
         try:
-            db = CredentialDB(cfg.proxy_db_path)
+            db = CredentialDB(cfg.db_path)
         except Exception as exc:
             print(
                 f"Warning [runner]: credential DB unavailable: {type(exc).__name__}: {exc}",

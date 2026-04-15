@@ -3,7 +3,7 @@
 
 """Pre-launch prerequisite checks for ``terok-executor run``.
 
-Detects missing infrastructure (podman, credential proxy, agent credentials,
+Detects missing infrastructure (podman, vault, agent credentials,
 container images) and — in interactive mode — offers to fix each issue before
 the run starts.  In non-interactive mode, reports all problems and exits.
 
@@ -46,13 +46,13 @@ def check_podman() -> CheckResult:
     return CheckResult("podman", True, "ok")
 
 
-def check_proxy() -> CheckResult:
-    """Check whether the credential proxy is reachable."""
-    from terok_sandbox import SandboxConfig, is_proxy_running, is_proxy_socket_active
+def check_vault() -> CheckResult:
+    """Check whether the vault is reachable."""
+    from terok_sandbox import SandboxConfig, is_vault_running, is_vault_socket_active
 
-    if is_proxy_socket_active() or is_proxy_running(cfg=SandboxConfig()):
-        return CheckResult("credential proxy", True, "running")
-    return CheckResult("credential proxy", False, "not running")
+    if is_vault_socket_active() or is_vault_running(cfg=SandboxConfig()):
+        return CheckResult("vault", True, "running")
+    return CheckResult("vault", False, "not running")
 
 
 def check_credentials(provider: str) -> CheckResult:
@@ -61,7 +61,7 @@ def check_credentials(provider: str) -> CheckResult:
 
     cfg = SandboxConfig()
     try:
-        db = CredentialDB(cfg.proxy_db_path)
+        db = CredentialDB(cfg.db_path)
     except Exception:  # noqa: BLE001
         return CheckResult(f"{provider} credentials", False, "credential database unavailable")
     try:
@@ -114,28 +114,28 @@ def _confirm(prompt: str) -> bool:
     return answer in ("", "y", "yes")
 
 
-def _fix_proxy() -> bool:
-    """Start the credential proxy, installing systemd units if needed."""
+def _fix_vault() -> bool:
+    """Start the vault, installing systemd units if needed."""
     from terok_sandbox import (
         SandboxConfig,
-        install_proxy_systemd,
-        is_proxy_running,
-        is_proxy_systemd_available,
-        start_proxy,
+        install_vault_systemd,
+        is_vault_running,
+        is_vault_systemd_available,
+        start_vault,
     )
 
-    from terok_executor.roster.loader import ensure_proxy_routes
+    from terok_executor.roster.loader import ensure_vault_routes
 
     cfg = SandboxConfig()
-    ensure_proxy_routes(cfg=cfg)
+    ensure_vault_routes(cfg=cfg)
 
-    if is_proxy_systemd_available():
-        install_proxy_systemd(cfg=cfg)
+    if is_vault_systemd_available():
+        install_vault_systemd(cfg=cfg)
         # systemd socket activation will start on first connection
         return True
 
-    start_proxy(cfg=cfg)
-    return is_proxy_running(cfg=cfg)
+    start_vault(cfg=cfg)
+    return is_vault_running(cfg=cfg)
 
 
 def _fix_credentials(provider: str) -> bool:
@@ -151,7 +151,7 @@ def _fix_credentials(provider: str) -> bool:
         return False
 
     # Write proxy config patches for the authenticated provider
-    from terok_executor.credentials.proxy_config import write_proxy_config
+    from terok_executor.credentials.vault_config import write_proxy_config
 
     write_proxy_config(provider)
     return True
@@ -211,16 +211,16 @@ def run_preflight(
         print("      Install podman first: https://podman.io/docs/installation", file=sys.stderr)
         return False
 
-    # 2. Credential proxy
-    r = check_proxy()
+    # 2. Vault
+    r = check_vault()
     if not r.ok and interactive:
         print(f"  [{2}/{total}] {r.name}... {r.message}")
-        if _confirm("Start credential proxy?"):
-            fixed = _fix_proxy()
+        if _confirm("Start vault?"):
+            fixed = _fix_vault()
             r = CheckResult(r.name, fixed, "started" if fixed else "failed to start")
     _print_step(2, total, r)
     if not r.ok:
-        print("      Start with: terok-executor proxy start", file=sys.stderr)
+        print("      Start with: terok-executor vault start", file=sys.stderr)
         all_ok = False
 
     # 3. Credentials for the requested provider

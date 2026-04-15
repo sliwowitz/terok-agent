@@ -206,8 +206,8 @@ def _handle_auth(*, agent: str, api_key: str | None = None) -> None:
 
         authenticate("standalone", agent, mounts_dir=mounts_dir(), image=image)
 
-    # Write proxy URLs to shared config files (e.g. Vibe config.toml, gh config.yml)
-    from .credentials.proxy_config import write_proxy_config
+    # Write vault URLs to shared config files (e.g. Vibe config.toml, gh config.yml)
+    from .credentials.vault_config import write_proxy_config
 
     write_proxy_config(agent)
 
@@ -317,7 +317,7 @@ def _handle_setup(*, check: bool = False) -> None:
 
     checks = [
         ("podman", check_podman()),
-        ("proxy", check_proxy()),
+        ("vault", check_proxy()),
         ("shield", check_shield()),
         ("images", check_images("ubuntu:24.04")),
     ]
@@ -474,7 +474,7 @@ STOP_COMMAND = CommandDef(
 
 SETUP_COMMAND = CommandDef(
     name="setup",
-    help="Check prerequisites (proxy, images, credentials)",
+    help="Check prerequisites (vault, images, credentials)",
     handler=_handle_setup,
     args=(
         ArgDef(

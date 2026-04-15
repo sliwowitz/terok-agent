@@ -14,7 +14,7 @@ import argparse
 from importlib.metadata import PackageNotFoundError, version as _meta_version
 
 from .commands import COMMANDS, ArgDef, CommandDef
-from .credentials.proxy_commands import PROXY_COMMANDS
+from .credentials.vault_commands import VAULT_COMMANDS
 
 try:
     __version__ = _meta_version("terok-executor")
@@ -37,12 +37,12 @@ def main() -> None:
     for cmd in COMMANDS:
         _wire_command(sub, cmd)
 
-    # -- proxy --
-    proxy_p = sub.add_parser("proxy", help="Credential proxy management")
-    proxy_sub = proxy_p.add_subparsers()
-    for cmd in PROXY_COMMANDS:
-        _wire_command(proxy_sub, cmd)
-    proxy_p.set_defaults(_group_help=proxy_p)
+    # -- vault --
+    vault_p = sub.add_parser("vault", help="Vault management")
+    vault_sub = vault_p.add_subparsers()
+    for cmd in VAULT_COMMANDS:
+        _wire_command(vault_sub, cmd)
+    vault_p.set_defaults(_group_help=vault_p)
 
     args = parser.parse_args()
     if hasattr(args, "_cmd"):

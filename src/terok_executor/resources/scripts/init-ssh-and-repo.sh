@@ -13,7 +13,7 @@ set -euo pipefail
 #   GIT_RESET_MODE          - "none" (default), "hard", or "soft"
 #   CLONE_FROM              - optional alternate source to seed the repo (e.g. file:///git-gate/gate.git)
 #   EXTERNAL_REMOTE_URL     - optional URL for upstream repo in gatekeeping mode (added as "external" remote)
-#   (bridge env vars — TEROK_SSH_AGENT_PORT, TEROK_SSH_AGENT_TOKEN, TEROK_PROXY_PORT, GH_TOKEN —
+#   (bridge env vars — TEROK_SSH_SIGNER_PORT, TEROK_SSH_SIGNER_TOKEN, TEROK_TOKEN_BROKER_PORT, GH_TOKEN —
 #    are consumed by ensure-bridges.sh, sourced below)
 
 : "${GIT_RESET_MODE:=none}"
@@ -34,7 +34,7 @@ if [[ "${TEROK_UNRESTRICTED:-}" == "1" ]]; then
   fi
 fi
 
-# Socat bridges: SSH agent + gh credential proxy.
+# Socat bridges: SSH signer + gh token broker.
 # Delegates to ensure-bridges.sh (single source of truth for both bridges).
 # shellcheck source=ensure-bridges.sh
 source ensure-bridges.sh
@@ -42,7 +42,7 @@ source ensure-bridges.sh
 if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
   echo ">> bridges established (SSH_AUTH_SOCK=${SSH_AUTH_SOCK})"
 
-  # Generate minimal ~/.ssh/config — the agent proxy handles keys, so no
+  # Generate minimal ~/.ssh/config — the SSH signer handles keys, so no
   # IdentityFile is needed.  StrictHostKeyChecking=accept-new prevents
   # interactive prompts on first connect while still pinning known hosts.
   mkdir -p "$HOME/.ssh"
@@ -53,7 +53,7 @@ Host *
 SSHEOF
   chmod 644 "$HOME/.ssh/config"
 
-  # Warm GitHub known_hosts (uses the agent for authentication)
+  # Warm GitHub known_hosts (uses the SSH signer for authentication)
   if command -v ssh >/dev/null 2>&1; then
     if [[ -n "${CODE_REPO:-}" && "${CODE_REPO}" == *"github.com"* ]]; then
       echo '>> warm github known_hosts (best-effort)'

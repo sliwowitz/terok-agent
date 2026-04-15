@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Patches provider config files to route API traffic through the credential proxy.
+"""Patches provider config files to route API traffic through the vault.
 
 Applies ``shared_config_patch`` from the YAML roster after authentication
-and — crucially — on every task start.  Writes proxy URLs (not secrets) to
+and — crucially — on every task start.  Writes vault URLs (not secrets) to
 provider config files so that agents route API traffic through the
-credential proxy instead of hitting upstream directly with phantom tokens.
+vault instead of hitting upstream directly with phantom tokens.
 """
 
 from __future__ import annotations
@@ -30,13 +30,13 @@ def write_proxy_config(provider_name: str) -> None:
     """Apply ``shared_config_patch`` from the YAML roster after auth.
 
     Patches a TOML or YAML config file in the provider's shared config dir
-    to redirect API traffic through the credential proxy.  The patch spec
+    to redirect API traffic through the vault.  The patch spec
     is declared in the agent YAML — no provider-specific code needed.
     """
     from terok_executor.roster.loader import get_roster
 
     roster = get_roster()
-    route = roster.proxy_routes.get(provider_name)
+    route = roster.vault_routes.get(provider_name)
     if not route or not route.shared_config_patch:
         return
 
@@ -44,12 +44,12 @@ def write_proxy_config(provider_name: str) -> None:
     if not auth_info:
         return
 
-    from terok_sandbox import SandboxConfig, get_proxy_port
+    from terok_sandbox import SandboxConfig, get_token_broker_port
 
     from terok_executor.paths import mounts_dir
 
     cfg = SandboxConfig()
-    port = get_proxy_port(cfg)
+    port = get_token_broker_port(cfg)
     proxy_url = f"http://host.containers.internal:{port}"
 
     patch = route.shared_config_patch
@@ -62,26 +62,26 @@ def write_proxy_config(provider_name: str) -> None:
     elif "toml_table" in patch:
         _apply_toml_patch(config_path, patch, proxy_url)
 
-    print(f"Proxy config written to {config_path}")
+    print(f"Vault config written to {config_path}")
 
 
 def apply_shared_config_patches(roster: AgentRoster, mounts_base: Path) -> None:
     """Re-apply every ``shared_config_patch`` for the whole roster.
 
     Called during task start so that shared mount directories (which may
-    have been recreated empty) always contain the correct proxy URLs.
+    have been recreated empty) always contain the correct vault URLs.
     Idempotent: safe to call on every launch.
 
     Raises :class:`ConfigPatchError` on failure — callers must not start
-    the container if proxy routing cannot be established.
+    the container if vault routing cannot be established.
     """
-    from terok_sandbox import SandboxConfig, get_proxy_port
+    from terok_sandbox import SandboxConfig, get_token_broker_port
 
     cfg = SandboxConfig()
-    port = get_proxy_port(cfg)
+    port = get_token_broker_port(cfg)
     proxy_url = f"http://host.containers.internal:{port}"
 
-    for name, route in roster.proxy_routes.items():
+    for name, route in roster.vault_routes.items():
         if not route.shared_config_patch:
             continue
         auth_info = roster.auth_providers.get(name)
@@ -103,7 +103,7 @@ def apply_shared_config_patches(roster: AgentRoster, mounts_base: Path) -> None:
             raise
         except Exception as exc:
             raise ConfigPatchError(
-                f"Failed to apply proxy config patch for {name} (file={patch.get('file')!r})"
+                f"Failed to apply vault config patch for {name} (file={patch.get('file')!r})"
             ) from exc
 
 

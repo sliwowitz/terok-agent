@@ -8,7 +8,7 @@ or supply-chain-compromised agent can exfiltrate API keys, push to
 arbitrary remotes, or reach services it shouldn't.
 
 terok-executor runs each agent in an isolated rootless Podman container with
-an egress firewall and a credential proxy that keeps real secrets off the
+an egress firewall and a vault that keeps real secrets off the
 container filesystem. One command to build, authenticate, and launch.
 
 ## Prerequisites
@@ -41,7 +41,7 @@ terok-executor auth gh --api-key ghp_…  # non-interactive
 ```
 
 Credentials are stored in a host-side database. Containers never see real
-keys — they receive phantom tokens resolved by the credential proxy.
+keys — they receive phantom tokens resolved by the vault.
 See [Security](security.md) for details.
 
 ## First run
@@ -52,13 +52,13 @@ terok-executor run claude . -p "Add type hints to utils.py"
 
 This clones the current directory into a hardened container, launches
 Claude in headless mode, and streams its output. The egress firewall
-and credential proxy are active by default.
+and vault are active by default.
 
 See [Launch modes](launch-modes.md) for interactive, web, and tool modes.
 
 ## Next steps
 
 - [Agents](agents.md) — supported agents, custom definitions, auth flows
-- [Security](security.md) — firewall, credential proxy, restricted mode
+- [Security](security.md) — firewall, vault, restricted mode
 - [Launch modes](launch-modes.md) — headless, interactive, web, tool
-- [Credential proxy internals](credential-proxy.md) — architecture deep dive
+- [Vault internals](vault.md) — architecture deep dive

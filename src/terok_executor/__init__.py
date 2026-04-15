@@ -54,7 +54,7 @@ from .container.env import ContainerEnvResult, ContainerEnvSpec, assemble_contai
 from .container.inject import inject_agent_config, inject_prompt
 from .container.runner import AgentRunner
 
-# -- Credentials (auth flows, extractors, proxy commands) ----------------------
+# -- Credentials (auth flows, extractors, vault commands) ----------------------
 from .credentials.auth import (
     AUTH_PROVIDERS,
     PHANTOM_CREDENTIALS_MARKER,
@@ -63,8 +63,8 @@ from .credentials.auth import (
     store_api_key,
 )
 from .credentials.extractors import extract_credential
-from .credentials.proxy_commands import PROXY_COMMANDS, scan_leaked_credentials
-from .credentials.proxy_config import ConfigPatchError
+from .credentials.vault_commands import VAULT_COMMANDS, scan_leaked_credentials
+from .credentials.vault_config import ConfigPatchError
 
 # -- Doctor + paths ------------------------------------------------------------
 from .doctor import agent_doctor_checks
@@ -90,9 +90,9 @@ from .provider.providers import (
 
 # -- Roster (agent catalog + config resolution) --------------------------------
 from .roster import (
-    CredentialProxyRoute,
     SidecarSpec,
-    ensure_proxy_routes,
+    VaultRoute,
+    ensure_vault_routes,
     get_roster,
     parse_agent_selection,
 )
@@ -172,9 +172,9 @@ __all__ = [
     "stage_scripts",
     "stage_toad_agents",
     "stage_tmux_config",
-    # Credential proxy
-    "CredentialProxyRoute",
-    "ensure_proxy_routes",
+    # Vault
+    "VaultRoute",
+    "ensure_vault_routes",
     "extract_credential",
     # Roster
     "SidecarSpec",
@@ -182,7 +182,7 @@ __all__ = [
     "parse_agent_selection",
     # Command registry
     "AGENT_COMMANDS",
-    "PROXY_COMMANDS",
+    "VAULT_COMMANDS",
     "CommandDef",
     "mounts_dir",
     "scan_leaked_credentials",

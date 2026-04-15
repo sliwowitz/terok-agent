@@ -6,8 +6,8 @@
 Each extractor reads a vendor-specific credential file from a temporary
 auth container mount and returns a normalized dict suitable for storage
 in :class:`~terok_sandbox.CredentialDB`.  The dict must contain at least
-one of ``access_token``, ``token``, or ``key`` --- the credential proxy
-server uses these fields to inject the real auth header.
+one of ``access_token``, ``token``, or ``key`` --- the vault server
+uses these fields to inject the real auth header.
 
 All extractors are pure functions: ``Path -> dict``.  They raise
 ``ValueError`` if the file is missing, malformed, or empty.
@@ -42,7 +42,7 @@ def extract_claude_oauth(base_dir: Path) -> dict:
             if access_token:
                 # Claude Code is a JS app: expiresAt is milliseconds since
                 # epoch (Date.now() convention).  Values > 1e12 are
-                # unambiguously ms; convert to POSIX seconds so the proxy
+                # unambiguously ms; convert to POSIX seconds so the vault
                 # refresh check (time.time()) works correctly.
                 expires_at_raw = oauth.get("expiresAt")
                 expires_at: float | None = None

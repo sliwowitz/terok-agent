@@ -58,10 +58,10 @@ class MountDef:
 
 
 @dataclass(frozen=True)
-class CredentialProxyRoute:
-    """Proxy route config parsed from a ``credential_proxy:`` YAML section.
+class VaultRoute:
+    """Vault route config parsed from a ``vault:`` YAML section.
 
-    Used to generate the ``routes.json`` that the credential proxy server reads.
+    Used to generate the ``routes.json`` that the vault server reads.
     """
 
     provider: str
@@ -178,7 +178,7 @@ class AgentRoster:
 
     _providers: dict[str, AgentProvider] = field(default_factory=dict)
     _auth_providers: dict[str, AuthProvider] = field(default_factory=dict)
-    _proxy_routes: dict[str, CredentialProxyRoute] = field(default_factory=dict)
+    _vault_routes: dict[str, VaultRoute] = field(default_factory=dict)
     _sidecar_specs: dict[str, SidecarSpec] = field(default_factory=dict)
     _installs: dict[str, InstallSpec] = field(default_factory=dict)
     _helps: dict[str, HelpSpec] = field(default_factory=dict)
@@ -199,9 +199,9 @@ class AgentRoster:
         return dict(self._auth_providers)
 
     @property
-    def proxy_routes(self) -> dict[str, CredentialProxyRoute]:
-        """All credential proxy routes, keyed by provider name."""
-        return dict(self._proxy_routes)
+    def vault_routes(self) -> dict[str, VaultRoute]:
+        """All vault routes, keyed by provider name."""
+        return dict(self._vault_routes)
 
     @property
     def sidecar_specs(self) -> dict[str, SidecarSpec]:
@@ -323,7 +323,7 @@ class AgentRoster:
     # ── Domain operations ──
 
     def generate_routes_json(self) -> str:
-        """Generate the ``routes.json`` content for the credential proxy server.
+        """Generate the ``routes.json`` content for the vault server.
 
         Returns a JSON string mapping route prefixes to upstream config.
         """
@@ -331,7 +331,7 @@ class AgentRoster:
 
         routes: dict[str, dict[str, object]] = {}
         prefix_owners: dict[str, str] = {}
-        for route in self._proxy_routes.values():
+        for route in self._vault_routes.values():
             existing = prefix_owners.get(route.route_prefix)
             if existing is not None:
                 raise ValueError(
@@ -415,7 +415,7 @@ def load_roster() -> AgentRoster:
 
     providers: dict[str, AgentProvider] = {}
     auth_providers: dict[str, AuthProvider] = {}
-    proxy_routes: dict[str, CredentialProxyRoute] = {}
+    vault_routes: dict[str, VaultRoute] = {}
     sidecar_specs: dict[str, SidecarSpec] = {}
     installs: dict[str, InstallSpec] = {}
     helps: dict[str, HelpSpec] = {}
@@ -468,10 +468,10 @@ def load_roster() -> AgentRoster:
                     label=m.get("label", name),
                 )
 
-        # Credential proxy route
-        proxy_route = _to_proxy_route(name, data)
-        if proxy_route is not None:
-            proxy_routes[name] = proxy_route
+        # Vault route
+        vault_route = _to_vault_route(name, data)
+        if vault_route is not None:
+            vault_routes[name] = vault_route
 
         # Sidecar spec
         sidecar = _to_sidecar_spec(name, data)
@@ -489,7 +489,7 @@ def load_roster() -> AgentRoster:
     return AgentRoster(
         _providers=providers,
         _auth_providers=auth_providers,
-        _proxy_routes=proxy_routes,
+        _vault_routes=vault_routes,
         _sidecar_specs=sidecar_specs,
         _installs=installs,
         _helps=helps,
@@ -499,12 +499,12 @@ def load_roster() -> AgentRoster:
     )
 
 
-def ensure_proxy_routes(cfg: SandboxConfig | None = None) -> Path:
+def ensure_vault_routes(cfg: SandboxConfig | None = None) -> Path:
     """Generate ``routes.json`` from the YAML roster and write it to disk.
 
     The routes file is written to the path configured in
     :class:`~terok_sandbox.SandboxConfig` (typically
-    ``~/.local/share/terok/proxy/routes.json``).
+    ``~/.local/share/terok/vault/routes.json``).
 
     When *cfg* is ``None``, falls back to standalone defaults.
 
@@ -514,7 +514,7 @@ def ensure_proxy_routes(cfg: SandboxConfig | None = None) -> Path:
 
     if cfg is None:
         cfg = SandboxConfig()
-    path = cfg.proxy_routes_path
+    path = cfg.routes_path
     import os
     import tempfile
 
@@ -746,26 +746,24 @@ def _validated_oauth_refresh(name: str, raw: dict | None) -> dict | None:
     return raw
 
 
-def _to_proxy_route(name: str, data: dict) -> CredentialProxyRoute | None:
-    """Parse the ``credential_proxy:`` YAML section into a route config."""
-    cp = data.get("credential_proxy")
+def _to_vault_route(name: str, data: dict) -> VaultRoute | None:
+    """Parse the ``vault:`` YAML section into a route config."""
+    cp = data.get("vault")
     if not cp:
         return None
     if not isinstance(cp, dict):
-        raise ValueError(
-            f"Agent {name!r}: credential_proxy must be a mapping, got {type(cp).__name__}"
-        )
+        raise ValueError(f"Agent {name!r}: vault must be a mapping, got {type(cp).__name__}")
     for required in ("route_prefix", "upstream"):
         if required not in cp:
-            raise ValueError(f"Agent {name!r}: credential_proxy missing required key {required!r}")
+            raise ValueError(f"Agent {name!r}: vault missing required key {required!r}")
     oauth_phantom_env = cp.get("oauth_phantom_env") or {}
     socket_path = cp.get("socket_path") or ""
     socket_env = cp.get("socket_env") or ""
     if bool(socket_path) != bool(socket_env):
         raise ValueError(
-            f"Agent {name!r}: credential_proxy requires both 'socket_path' and 'socket_env' together"
+            f"Agent {name!r}: vault requires both 'socket_path' and 'socket_env' together"
         )
-    return CredentialProxyRoute(
+    return VaultRoute(
         provider=name,
         route_prefix=cp["route_prefix"],
         upstream=cp["upstream"],

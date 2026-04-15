@@ -1,4 +1,4 @@
-# Credential Proxy Integration
+# Vault Integration
 
 ## Problem
 
@@ -6,18 +6,18 @@ terok bind-mounts vendor config directories into task containers. A
 prompt-injected or supply-chain-compromised agent can read and exfiltrate
 API keys, OAuth tokens, or SSH private keys from these shared mounts.
 
-## Solution: TCP Credential Proxy
+## Solution: TCP Token Broker
 
 No real secret enters a task container. Instead:
 
 1. **Credential DB** (host-side) stores API keys and OAuth tokens
-2. **Credential proxy** ([terok-sandbox](https://terok-ai.github.io/terok-sandbox/))
+2. **Token broker** ([terok-sandbox](https://terok-ai.github.io/terok-sandbox/))
    resolves phantom tokens to real credentials and forwards requests upstream
 3. **Per-provider phantom tokens** (per-task, per-provider) are what containers see
-4. **SSH agent proxy** ([terok-sandbox](https://terok-ai.github.io/terok-sandbox/))
+4. **SSH signer** ([terok-sandbox](https://terok-ai.github.io/terok-sandbox/))
    lets containers sign with host-side SSH keys without the private keys
    entering the container. A socat bridge inside the container relays
-   SSH agent requests over TCP to the host-side proxy.
+   SSH signer requests over TCP to the host-side proxy.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ Credential DB (sqlite3)                   Per-provider phantom tokens (env vars)
     (token, project, task,                  GH_TOKEN=<gh-phantom>
      credential_set, provider)              GITLAB_TOKEN=<glab-phantom>
 
-Credential Proxy (terok-sandbox)          Agent / tool makes API request
+Token Broker (terok-sandbox)              Agent / tool makes API request
   TCP + Unix socket listeners                with phantom token in auth header
   Resolves phantom → real credential
   Injects auth header, forwards             Routing is by token, not URL path.
@@ -41,9 +41,9 @@ Credential Proxy (terok-sandbox)          Agent / tool makes API request
 
 SELinux blocks `connect()` on host Unix sockets mounted into rootless
 Podman containers (`container_t -> unconfined_t` denied). Containers
-reach the proxy via TCP (`host.containers.internal:<port>`) instead.
+reach the token broker via TCP (`host.containers.internal:<port>`) instead.
 [terok-shield](https://terok-ai.github.io/terok-shield/) allows the
-proxy port through the nftables firewall via `loopback_ports`.
+token broker port through the nftables firewall via `loopback_ports`.
 
 ### Per-provider phantom token routing
 
@@ -56,25 +56,25 @@ tokens = {
 }
 ```
 
-The proxy resolves the route from the token's `provider` field, not from
+The token broker resolves the route from the token's `provider` field, not from
 the URL path. This is essential because some SDKs (Vibe's Mistral SDK,
 gh CLI) strip or ignore URL path components.
 
 ## Per-Agent Traffic Routing
 
-Different agents reach the proxy in different ways, depending on what
+Different agents reach the token broker in different ways, depending on what
 their SDK supports:
 
-| Agent | How it reaches the proxy | Notes |
+| Agent | How it reaches the token broker | Notes |
 |-------|-------------------------|-------|
 | **Claude** | `ANTHROPIC_BASE_URL=http://host.containers.internal:<port>` | Anthropic SDK respects this env var (default port: 18731) |
 | **Codex** | `OPENAI_BASE_URL=http://host.containers.internal:<port>` | OpenAI SDK respects this env var (default port: 18731) |
 | **Vibe** | `config.toml` with `api_base` in shared `~/.vibe` mount | Mistral SDK ignores URL path in api_base, only uses host:port. Written by `shared_config_patch` in YAML |
-| **KISSKI** | `TEROK_OC_KISSKI_BASE_URL` env var override | OpenCode reads this; overridden from the real upstream to proxy |
+| **KISSKI** | `TEROK_OC_KISSKI_BASE_URL` env var override | OpenCode reads this; overridden from the real upstream to token broker |
 | **Blablador** | `TEROK_OC_BLABLADOR_BASE_URL` env var override | Same pattern as KISSKI |
 | **gh** | `http_unix_socket` in `~/.config/gh/config.yml` + socat bridge | gh routes ALL API traffic through a Unix socket. socat bridges it to TCP. See below. |
 | **glab** | `GITLAB_API_HOST` + `API_PROTOCOL=http` env vars | glab sends to `http://<api_host>/api/v4/...` |
-| **CodeRabbit** | Real API key via sidecar `env_map` | CLI has no base URL override, so proxy routing is not possible. Sidecar receives the real key directly from the credential DB. |
+| **CodeRabbit** | Real API key via sidecar `env_map` | CLI has no base URL override, so token broker routing is not possible. Sidecar receives the real key directly from the credential DB. |
 | **SonarCloud** | `SONAR_HOST_URL` + `SONAR_TOKEN` phantom env | Tool agent; scanner uses host URL override |
 
 ### gh: socat bridge pattern
@@ -86,12 +86,12 @@ The init script (`init-ssh-and-repo.sh`) starts a socat bridge:
 
 ```bash
 socat UNIX-LISTEN:/tmp/terok-gh-proxy.sock,fork \
-  TCP:host.containers.internal:${TEROK_PROXY_PORT} &
+  TCP:host.containers.internal:${TEROK_TOKEN_BROKER_PORT} &
 ```
 
 The socket is created **inside** the container by the container's own
 process. SELinux allows `container_t -> container_t` socket connections.
-The TCP hop to the host proxy crosses the container boundary safely.
+The TCP hop to the host token broker crosses the container boundary safely.
 
 The `http_unix_socket` path is written to `~/.config/gh/config.yml`
 by the `shared_config_patch` mechanism during `terok-executor auth gh`.
@@ -120,10 +120,10 @@ Only non-secret values (URLs, socket paths) are written to shared mounts.
 
 ## Agent YAML Registry
 
-Each agent declares its proxy integration in `resources/agents/<name>.yaml`:
+Each agent declares its vault integration in `resources/agents/<name>.yaml`:
 
 ```yaml
-credential_proxy:
+vault:
   route_prefix: claude           # kept for routes.json generation
   upstream: https://api.anthropic.com
   auth_header: dynamic           # OAuth -> Bearer, API key -> x-api-key
@@ -131,21 +131,21 @@ credential_proxy:
   credential_file: .credentials.json
   phantom_env:
     ANTHROPIC_API_KEY: true      # env var gets the phantom token
-  base_url_env: ANTHROPIC_BASE_URL  # optional: env var for proxy URL
-  shared_config_patch: ...       # optional: file patch for proxy URL
+  base_url_env: ANTHROPIC_BASE_URL  # optional: env var for token broker URL
+  shared_config_patch: ...       # optional: file patch for token broker URL
 ```
 
 ### Agent-specific settings not in YAML
 
 - **OpenCode base URL override**: For KISSKI and Blablador, the environment
-  builder overrides `TEROK_OC_<NAME>_BASE_URL` when the proxy is active.
+  builder overrides `TEROK_OC_<NAME>_BASE_URL` when the vault is active.
   This is computed at container launch, not declared in YAML.
 
 - **glab env vars**: `GITLAB_API_HOST` and `API_PROTOCOL=http` are injected
   by the environment builder for glab specifically. glab has no YAML field
   for this because it's a routing concern, not a credential concern.
 
-- **socat bridge**: Started by `init-ssh-and-repo.sh` when `TEROK_PROXY_PORT`
+- **socat bridge**: Started by `init-ssh-and-repo.sh` when `TEROK_TOKEN_BROKER_PORT`
   and `GH_TOKEN` are both set. The socket path is hardcoded to
   `/tmp/terok-gh-proxy.sock` (matching the `shared_config_patch`).
 
@@ -166,7 +166,7 @@ Prompts for an API key on the terminal. No container needed.
 ### Post-auth config patching
 
 After storing credentials, `write_proxy_config()` applies any
-`shared_config_patch` from the YAML registry. This writes proxy URLs
+`shared_config_patch` from the YAML registry. This writes token broker URLs
 (not secrets) to the provider's shared config mount.
 
 ## Per-Provider Credential Extractors
@@ -185,16 +185,16 @@ After storing credentials, `write_proxy_config()` applies any
 
 ## Known Limitations
 
-- **Codex**: The credential proxy only handles HTTP. Codex needs WebSocket
-  support for its realtime protocol, which the proxy does not yet provide.
+- **Codex**: The token broker only handles HTTP. Codex needs WebSocket
+  support for its realtime protocol, which the token broker does not yet provide.
 
-- **Copilot**: Not proxied yet. No `credential_proxy` section in YAML.
+- **Copilot**: Not proxied yet. No `vault` section in YAML.
 
 ## Package Boundaries
 
 - **[terok-sandbox](https://terok-ai.github.io/terok-sandbox/)**: Credential
-  DB, proxy server (HTTP forwarding, phantom token resolution, OAuth token
-  refresh, SSH agent proxy), TCP+Unix listeners, lifecycle management
+  DB, token broker (HTTP forwarding, phantom token resolution, OAuth token
+  refresh, SSH signer), TCP+Unix listeners, lifecycle management
 - **terok-executor** (this package): YAML agent registry, credential extractors,
   auth CLI, container environment wiring (phantom env vars, base URL overrides,
   socat bridges, `shared_config_patch`)

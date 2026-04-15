@@ -5,7 +5,7 @@ kind: tool
 label: CodeRabbit
 binary: coderabbit
 
-credential_proxy:
+vault:
   route_prefix: coderabbit
   upstream: https://app.coderabbit.ai
   auth_header: Authorization
@@ -14,9 +14,9 @@ credential_proxy:
   phantom_env:
     CODERABBIT_API_KEY: true
   # No base_url_env: the CLI has no API endpoint override.  It does
-  # honour HTTPS_PROXY, but the credential proxy is a reverse proxy
+  # honour HTTPS_PROXY, but the token broker is a reverse proxy
   # (route-prefix), not a forward proxy (CONNECT tunnel).
-  # Phantom tokens cannot reach the upstream without proxy routing.
+  # Phantom tokens cannot reach the upstream without vault routing.
   # Binary not shipped in L1; sidecar architecture under consideration.
 
 sidecar:

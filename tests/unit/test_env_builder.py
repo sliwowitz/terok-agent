@@ -26,16 +26,16 @@ def _find_vol(volumes: tuple[VolumeSpec, ...], container_path: str) -> VolumeSpe
     return next((v for v in volumes if container_path in v.container_path), None)
 
 
-def _make_proxy_db(tmp_path: Path, cred_name: str = "claude", cred_data: dict | None = None):
+def _make_vault_db(tmp_path: Path, cred_name: str = "claude", cred_data: dict | None = None):
     """Return a ``SandboxConfig`` with one credential pre-stored in its ``CredentialDB``.
 
     The DB is created, populated, and closed internally.
     """
     from terok_sandbox import CredentialDB, SandboxConfig
 
-    cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
-    cfg.proxy_db_path.parent.mkdir(parents=True, exist_ok=True)
-    db = CredentialDB(cfg.proxy_db_path)
+    cfg = SandboxConfig(state_dir=tmp_path, vault_dir=tmp_path / "credentials")
+    cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = CredentialDB(cfg.db_path)
     db.store_credential(
         "default",
         cred_name,
@@ -45,12 +45,12 @@ def _make_proxy_db(tmp_path: Path, cred_name: str = "claude", cred_data: dict | 
     return cfg
 
 
-def _make_proxy_db_with_ssh_keys(tmp_path: Path, scope: str = "myproj"):
+def _make_vault_db_with_ssh_keys(tmp_path: Path, scope: str = "myproj"):
     """Return a SandboxConfig with credential DB and SSH keys for *scope*."""
     import json
 
-    cfg = _make_proxy_db(tmp_path)
-    cfg.credentials_dir.mkdir(parents=True, exist_ok=True)
+    cfg = _make_vault_db(tmp_path)
+    cfg.vault_dir.mkdir(parents=True, exist_ok=True)
     cfg.ssh_keys_json_path.write_text(
         json.dumps(
             {scope: [{"private_key": "/tmp/terok-testing/k", "public_key": "ssh-ed25519 AAAA"}]}
@@ -112,23 +112,23 @@ class TestBaseEnv:
     """Verify base environment variables are always set."""
 
     def test_task_id(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert result.env["TASK_ID"] == "test-123"
 
     def test_repo_root(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert result.env["REPO_ROOT"] == "/workspace"
 
     def test_git_reset_mode(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert result.env["GIT_RESET_MODE"] == "none"
 
     def test_claude_config_dir(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert result.env["CLAUDE_CONFIG_DIR"] == "/home/dev/.claude"
 
     def test_returns_frozen_result(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert isinstance(result, ContainerEnvResult)
 
 
@@ -142,7 +142,7 @@ class TestGitIdentity:
 
     def test_identity_from_roster_provider(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["GIT_AUTHOR_NAME"] == "Claude"
         assert result.env["GIT_AUTHOR_EMAIL"] == "noreply@anthropic.com"
         assert result.env["GIT_COMMITTER_NAME"] == "Claude"
@@ -156,7 +156,7 @@ class TestGitIdentity:
             git_committer_name="AI Committer",
             git_committer_email="ai@example.com",
         )
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["GIT_AUTHOR_NAME"] == "Human Author"
         assert result.env["GIT_AUTHOR_EMAIL"] == "human@example.com"
         assert result.env["GIT_COMMITTER_NAME"] == "AI Committer"
@@ -164,13 +164,13 @@ class TestGitIdentity:
 
     def test_committer_defaults_to_author(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir, git_author_name="Custom", git_author_email="custom@t.com")
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["GIT_COMMITTER_NAME"] == "Custom"
         assert result.env["GIT_COMMITTER_EMAIL"] == "custom@t.com"
 
     def test_unknown_provider_uses_fallback(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir, provider_name="nonexistent")
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["GIT_AUTHOR_NAME"] == "AI Agent"
 
 
@@ -183,7 +183,7 @@ class TestAuthorship:
     """Verify authorship mode and human identity env vars."""
 
     def test_defaults(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert result.env["TEROK_GIT_AUTHORSHIP"] == "agent"
         assert result.env["HUMAN_GIT_NAME"] == "Nobody"
         assert result.env["HUMAN_GIT_EMAIL"] == "nobody@localhost"
@@ -196,7 +196,7 @@ class TestAuthorship:
             human_name="Jane Doe",
             human_email="jane@example.com",
         )
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["TEROK_GIT_AUTHORSHIP"] == "agent-human"
         assert result.env["HUMAN_GIT_NAME"] == "Jane Doe"
         assert result.env["HUMAN_GIT_EMAIL"] == "jane@example.com"
@@ -212,7 +212,7 @@ class TestRepoSetup:
 
     def test_code_repo(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir, code_repo="http://gate@host:9418/repo")
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["CODE_REPO"] == "http://gate@host:9418/repo"
 
     def test_clone_from(self, workspace, envs_dir, roster):
@@ -222,21 +222,21 @@ class TestRepoSetup:
             clone_from="http://gate@host:9418/mirror",
             code_repo="https://github.com/user/repo",
         )
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["CLONE_FROM"] == "http://gate@host:9418/mirror"
         assert result.env["CODE_REPO"] == "https://github.com/user/repo"
 
     def test_branch(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir, branch="feat/my-branch")
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["GIT_BRANCH"] == "feat/my-branch"
 
     def test_no_branch_omits_key(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert "GIT_BRANCH" not in result.env
 
     def test_no_code_repo_omits_key(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert "CODE_REPO" not in result.env
 
 
@@ -249,7 +249,7 @@ class TestWorkspaceVolume:
     """Verify workspace volume mount."""
 
     def test_workspace_mounted_with_exclusive_label(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         ws = _find_vol(result.volumes, "/workspace")
         assert ws is not None
         assert ws.host_path == base_spec.workspace_host_path
@@ -266,7 +266,7 @@ class TestSharedConfigMounts:
 
     def test_claude_config_mounted(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         claude = _find_vol(result.volumes, "/home/dev/.claude")
         assert claude is not None
         assert "_claude-config" in str(claude.host_path)
@@ -274,13 +274,13 @@ class TestSharedConfigMounts:
 
     def test_shared_mounts_use_lowercase_z(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         shared = [v for v in result.volumes if v.sharing == "shared"]
         assert len(shared) > 0
 
     def test_host_dirs_created(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir)
-        assemble_container_env(spec, roster, caller_manages_proxy=True)
+        assemble_container_env(spec, roster, caller_manages_vault=True)
         assert (envs_dir / "_claude-config").is_dir()
 
 
@@ -296,14 +296,14 @@ class TestAgentConfigMount:
         cfg_dir = tmp_path / "agent-config"
         cfg_dir.mkdir()
         spec = _spec(workspace, envs_dir, agent_config_dir=cfg_dir)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         vol = _find_vol(result.volumes, "/home/dev/.terok")
         assert vol is not None
         assert vol.host_path == cfg_dir
         assert vol.sharing == "private"
 
     def test_no_agent_config_when_none(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert _find_vol(result.volumes, "/home/dev/.terok") is None
 
 
@@ -317,12 +317,12 @@ class TestUnrestrictedMode:
 
     def test_unrestricted_sets_env(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir, unrestricted=True)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.env["TEROK_UNRESTRICTED"] == "1"
 
     def test_restricted_omits_env(self, workspace, envs_dir, roster):
         spec = _spec(workspace, envs_dir, unrestricted=False)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert "TEROK_UNRESTRICTED" not in result.env
 
 
@@ -337,7 +337,7 @@ class TestSharedTaskDir:
     def test_shared_dir_mounted_when_set(self, workspace, envs_dir, roster, tmp_path):
         shared = tmp_path / "shared"
         spec = _spec(workspace, envs_dir, shared_dir=shared)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         vol = _find_vol(result.volumes, "/shared")
         assert vol is not None and vol.host_path == shared and vol.sharing == "shared"
         assert result.env["TEROK_SHARED_DIR"] == "/shared"
@@ -345,7 +345,7 @@ class TestSharedTaskDir:
     def test_shared_dir_custom_mount(self, workspace, envs_dir, roster, tmp_path):
         shared = tmp_path / "data"
         spec = _spec(workspace, envs_dir, shared_dir=shared, shared_mount="/data/ipc")
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         vol = _find_vol(result.volumes, "/data/ipc")
         assert vol is not None and vol.host_path == shared
         assert result.env["TEROK_SHARED_DIR"] == "/data/ipc"
@@ -353,11 +353,11 @@ class TestSharedTaskDir:
     def test_shared_dir_created(self, workspace, envs_dir, roster, tmp_path):
         shared = tmp_path / "new-shared"
         spec = _spec(workspace, envs_dir, shared_dir=shared)
-        assemble_container_env(spec, roster, caller_manages_proxy=True)
+        assemble_container_env(spec, roster, caller_manages_vault=True)
         assert shared.is_dir()
 
     def test_no_shared_dir_by_default(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert "TEROK_SHARED_DIR" not in result.env
         assert _find_vol(result.volumes, "/shared") is None
 
@@ -373,211 +373,209 @@ class TestExtraVolumes:
     def test_extra_volumes_appended(self, workspace, envs_dir, roster):
         extra = VolumeSpec(Path("/host/ssh"), "/home/dev/.ssh")
         spec = _spec(workspace, envs_dir, extra_volumes=(extra,))
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         vol = _find_vol(result.volumes, "/home/dev/.ssh")
         assert vol is not None and vol.host_path == Path("/host/ssh")
 
 
 # ---------------------------------------------------------------------------
-# Credential proxy
+# Vault token injection
 # ---------------------------------------------------------------------------
 
 
-class TestCredentialProxy:
-    """Verify credential proxy token injection."""
+class TestVaultTokenInjection:
+    """Verify vault token injection."""
 
-    def test_caller_manages_proxy_skips_injection(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+    def test_caller_manages_vault_skips_injection(self, base_spec, roster):
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_not_running_returns_no_tokens(self, base_spec, roster):
+    def test_vault_not_running_returns_no_tokens(self, base_spec, roster):
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=False),
+            patch("terok_sandbox.is_vault_socket_active", return_value=False),
+            patch("terok_sandbox.is_vault_running", return_value=False),
         ):
-            result = assemble_container_env(base_spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(base_spec, roster, caller_manages_vault=False)
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_running_injects_tokens(self, workspace, envs_dir, roster, tmp_path):
-        cfg = _make_proxy_db(tmp_path)
+    def test_vault_running_injects_tokens(self, workspace, envs_dir, roster, tmp_path):
+        cfg = _make_vault_db(tmp_path)
         spec = _spec(workspace, envs_dir, credential_scope="test-project")
 
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=False),
+            patch("terok_sandbox.is_vault_running", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
         assert "ANTHROPIC_API_KEY" in result.env
         assert result.env["ANTHROPIC_API_KEY"].startswith("terok-p-")
 
     def test_no_routed_providers_returns_empty(self, workspace, envs_dir, roster, tmp_path):
-        """Stored credentials that don't match any proxy route produce no tokens."""
-        cfg = _make_proxy_db(tmp_path, "nonexistent-provider")
+        """Stored credentials that don't match any vault route produce no tokens."""
+        cfg = _make_vault_db(tmp_path, "nonexistent-provider")
         spec = _spec(workspace, envs_dir)
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_db_error_returns_empty(self, base_spec, roster):
+    def test_vault_db_error_returns_empty(self, base_spec, roster):
         """DB open failure returns empty env gracefully."""
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.CredentialDB", side_effect=OSError("corrupt")),
         ):
-            result = assemble_container_env(base_spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(base_spec, roster, caller_manages_vault=False)
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_oauth_credential_uses_oauth_phantom_env(
+    def test_vault_oauth_credential_uses_oauth_phantom_env(
         self, workspace, envs_dir, roster, tmp_path
     ):
         """OAuth credential selects oauth_phantom_env (e.g. CLAUDE_CODE_OAUTH_TOKEN)."""
-        cfg = _make_proxy_db(tmp_path, cred_data={"type": "oauth", "access_token": "oa-tok"})
+        cfg = _make_vault_db(tmp_path, cred_data={"type": "oauth", "access_token": "oa-tok"})
         spec = _spec(workspace, envs_dir, credential_scope="test-project")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
         assert "CLAUDE_CODE_OAUTH_TOKEN" in result.env
         assert result.env["CLAUDE_CODE_OAUTH_TOKEN"].startswith("terok-p-")
         # API key env var must NOT be set when OAuth credential is stored
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_api_key_falls_back_to_phantom_env(self, workspace, envs_dir, roster, tmp_path):
+    def test_vault_api_key_falls_back_to_phantom_env(self, workspace, envs_dir, roster, tmp_path):
         """API-key credential uses phantom_env even when oauth_phantom_env exists."""
-        cfg = _make_proxy_db(tmp_path)
+        cfg = _make_vault_db(tmp_path)
         spec = _spec(workspace, envs_dir, credential_scope="test-project")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
         assert "ANTHROPIC_API_KEY" in result.env
         assert result.env["ANTHROPIC_API_KEY"].startswith("terok-p-")
         # OAuth env var must NOT be set for API key credentials
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in result.env
 
-    def test_proxy_token_creation_error_returns_empty(self, workspace, envs_dir, roster, tmp_path):
+    def test_vault_token_creation_error_returns_empty(self, workspace, envs_dir, roster, tmp_path):
         """Token creation failure returns empty env gracefully."""
-        cfg = _make_proxy_db(tmp_path)
+        cfg = _make_vault_db(tmp_path)
         spec = _spec(workspace, envs_dir)
 
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
-            patch(
-                "terok_sandbox.CredentialDB.create_proxy_token", side_effect=RuntimeError("boom")
-            ),
+            patch("terok_sandbox.CredentialDB.create_token", side_effect=RuntimeError("boom")),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_socket_transport_injects_socket_env(self, workspace, envs_dir, roster, tmp_path):
+    def test_vault_socket_transport_injects_socket_env(self, workspace, envs_dir, roster, tmp_path):
         """Socket transport injects socket_env and socket_path for routes that declare them."""
-        cfg = _make_proxy_db(tmp_path)
-        spec = _spec(workspace, envs_dir, credential_scope="proj", proxy_transport="socket")
+        cfg = _make_vault_db(tmp_path)
+        spec = _spec(workspace, envs_dir, credential_scope="proj", vault_transport="socket")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
         # Claude route declares socket_env=ANTHROPIC_UNIX_SOCKET
         assert "ANTHROPIC_UNIX_SOCKET" in result.env
         assert result.env["ANTHROPIC_UNIX_SOCKET"] == "/tmp/terok-claude-proxy.sock"
 
-    def test_proxy_direct_transport_omits_socket_env(self, workspace, envs_dir, roster, tmp_path):
+    def test_vault_direct_transport_omits_socket_env(self, workspace, envs_dir, roster, tmp_path):
         """Direct transport (default) does not inject socket_env."""
-        cfg = _make_proxy_db(tmp_path)
-        spec = _spec(workspace, envs_dir, credential_scope="proj", proxy_transport="direct")
+        cfg = _make_vault_db(tmp_path)
+        spec = _spec(workspace, envs_dir, credential_scope="proj", vault_transport="direct")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
         assert "ANTHROPIC_UNIX_SOCKET" not in result.env
 
-    def test_proxy_required_raises_when_unreachable(self, workspace, envs_dir, roster):
-        """proxy_required=True raises SystemExit when proxy is not running."""
-        spec = _spec(workspace, envs_dir, proxy_required=True)
+    def test_vault_required_raises_when_unreachable(self, workspace, envs_dir, roster):
+        """vault_required=True raises SystemExit when vault is not running."""
+        spec = _spec(workspace, envs_dir, vault_required=True)
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=False),
-            pytest.raises(SystemExit, match="Credential proxy is not running"),
+            patch("terok_sandbox.is_vault_socket_active", return_value=False),
+            patch("terok_sandbox.is_vault_running", return_value=False),
+            pytest.raises(SystemExit, match="Vault is not running"),
         ):
-            assemble_container_env(spec, roster, caller_manages_proxy=False)
+            assemble_container_env(spec, roster, caller_manages_vault=False)
 
-    def test_proxy_not_required_soft_fails(self, workspace, envs_dir, roster):
-        """proxy_required=False (default) returns empty env when proxy is down."""
-        spec = _spec(workspace, envs_dir, proxy_required=False)
+    def test_vault_not_required_soft_fails(self, workspace, envs_dir, roster):
+        """vault_required=False (default) returns empty env when vault is down."""
+        spec = _spec(workspace, envs_dir, vault_required=False)
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=False),
-            patch("terok_sandbox.is_proxy_running", return_value=False),
+            patch("terok_sandbox.is_vault_socket_active", return_value=False),
+            patch("terok_sandbox.is_vault_running", return_value=False),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_injects_ssh_agent_token(self, workspace, envs_dir, roster, tmp_path):
-        """SSH agent token injected when scope has valid keys in ssh-keys.json."""
-        cfg = _make_proxy_db_with_ssh_keys(tmp_path)
+    def test_vault_injects_ssh_signer_token(self, workspace, envs_dir, roster, tmp_path):
+        """SSH signer token injected when scope has valid keys in ssh-keys.json."""
+        cfg = _make_vault_db_with_ssh_keys(tmp_path)
         spec = _spec(workspace, envs_dir, credential_scope="myproj")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
-        assert "TEROK_SSH_AGENT_TOKEN" in result.env
-        assert result.env["TEROK_SSH_AGENT_TOKEN"].startswith("terok-p-")
-        assert "TEROK_SSH_AGENT_PORT" in result.env
-        assert "TEROK_SSH_AGENT_SOCKET" not in result.env
+        assert "TEROK_SSH_SIGNER_TOKEN" in result.env
+        assert result.env["TEROK_SSH_SIGNER_TOKEN"].startswith("terok-p-")
+        assert "TEROK_SSH_SIGNER_PORT" in result.env
+        assert "TEROK_SSH_SIGNER_SOCKET" not in result.env
 
-    def test_proxy_ssh_agent_socket_transport(self, workspace, envs_dir, roster, tmp_path):
-        """Socket transport injects TEROK_SSH_AGENT_SOCKET instead of _PORT."""
-        cfg = _make_proxy_db_with_ssh_keys(tmp_path)
-        spec = _spec(workspace, envs_dir, credential_scope="myproj", proxy_transport="socket")
+    def test_vault_ssh_signer_socket_transport(self, workspace, envs_dir, roster, tmp_path):
+        """Socket transport injects TEROK_SSH_SIGNER_SOCKET instead of _PORT."""
+        cfg = _make_vault_db_with_ssh_keys(tmp_path)
+        spec = _spec(workspace, envs_dir, credential_scope="myproj", vault_transport="socket")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
-        assert "TEROK_SSH_AGENT_TOKEN" in result.env
-        assert result.env["TEROK_SSH_AGENT_SOCKET"] == "/run/terok/ssh-agent.sock"
-        assert "TEROK_SSH_AGENT_PORT" not in result.env
+        assert "TEROK_SSH_SIGNER_TOKEN" in result.env
+        assert result.env["TEROK_SSH_SIGNER_SOCKET"] == "/run/terok/ssh-agent.sock"
+        assert "TEROK_SSH_SIGNER_PORT" not in result.env
 
-    def test_proxy_no_ssh_keys_omits_token(self, workspace, envs_dir, roster, tmp_path):
-        """No SSH agent token when ssh-keys.json has no entry for scope."""
-        cfg = _make_proxy_db(tmp_path)
+    def test_vault_no_ssh_keys_omits_token(self, workspace, envs_dir, roster, tmp_path):
+        """No SSH signer token when ssh-keys.json has no entry for scope."""
+        cfg = _make_vault_db(tmp_path)
         spec = _spec(workspace, envs_dir, credential_scope="no-keys-project")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
-        assert "TEROK_SSH_AGENT_TOKEN" not in result.env
-        assert "TEROK_SSH_AGENT_PORT" not in result.env
+        assert "TEROK_SSH_SIGNER_TOKEN" not in result.env
+        assert "TEROK_SSH_SIGNER_PORT" not in result.env
 
-    def test_proxy_ssh_only_no_provider_creds(self, workspace, envs_dir, roster, tmp_path):
-        """SSH agent token injected even when no provider credentials are stored."""
+    def test_vault_ssh_only_no_provider_creds(self, workspace, envs_dir, roster, tmp_path):
+        """SSH signer token injected even when no provider credentials are stored."""
         import json
 
         from terok_sandbox import CredentialDB, SandboxConfig
 
-        cfg = SandboxConfig(state_dir=tmp_path, credentials_dir=tmp_path / "credentials")
-        cfg.proxy_db_path.parent.mkdir(parents=True, exist_ok=True)
-        cfg.credentials_dir.mkdir(parents=True, exist_ok=True)
+        cfg = SandboxConfig(state_dir=tmp_path, vault_dir=tmp_path / "credentials")
+        cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg.vault_dir.mkdir(parents=True, exist_ok=True)
         # DB exists but has NO provider credentials — only SSH keys
-        CredentialDB(cfg.proxy_db_path).close()
+        CredentialDB(cfg.db_path).close()
         cfg.ssh_keys_json_path.write_text(
             json.dumps(
                 {
@@ -590,68 +588,66 @@ class TestCredentialProxy:
 
         spec = _spec(workspace, envs_dir, credential_scope="sshonly")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
-        assert "TEROK_SSH_AGENT_TOKEN" in result.env
-        assert result.env["TEROK_SSH_AGENT_TOKEN"].startswith("terok-p-")
+        assert "TEROK_SSH_SIGNER_TOKEN" in result.env
+        assert result.env["TEROK_SSH_SIGNER_TOKEN"].startswith("terok-p-")
         # No provider tokens
         assert "ANTHROPIC_API_KEY" not in result.env
 
-    def test_proxy_required_hard_fails_on_db_error(self, workspace, envs_dir, roster):
-        """proxy_required=True raises SystemExit on CredentialDB construction failure."""
-        spec = _spec(workspace, envs_dir, proxy_required=True)
+    def test_vault_required_hard_fails_on_db_error(self, workspace, envs_dir, roster):
+        """vault_required=True raises SystemExit on CredentialDB construction failure."""
+        spec = _spec(workspace, envs_dir, vault_required=True)
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.CredentialDB", side_effect=OSError("corrupt")),
             pytest.raises(SystemExit, match="DB unavailable.*Check logs"),
         ):
-            assemble_container_env(spec, roster, caller_manages_proxy=False)
+            assemble_container_env(spec, roster, caller_manages_vault=False)
 
-    def test_proxy_required_hard_fails_on_token_error(self, workspace, envs_dir, roster, tmp_path):
-        """proxy_required=True raises SystemExit on token creation failure."""
-        cfg = _make_proxy_db(tmp_path)
-        spec = _spec(workspace, envs_dir, proxy_required=True)
+    def test_vault_required_hard_fails_on_token_error(self, workspace, envs_dir, roster, tmp_path):
+        """vault_required=True raises SystemExit on token creation failure."""
+        cfg = _make_vault_db(tmp_path)
+        spec = _spec(workspace, envs_dir, vault_required=True)
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
-            patch(
-                "terok_sandbox.CredentialDB.create_proxy_token", side_effect=RuntimeError("boom")
-            ),
+            patch("terok_sandbox.CredentialDB.create_token", side_effect=RuntimeError("boom")),
             pytest.raises(SystemExit, match="injection failed.*Check logs"),
         ):
-            assemble_container_env(spec, roster, caller_manages_proxy=False)
+            assemble_container_env(spec, roster, caller_manages_vault=False)
 
-    def test_proxy_malformed_ssh_entry_warns(self, workspace, envs_dir, roster, tmp_path, caplog):
+    def test_vault_malformed_ssh_entry_warns(self, workspace, envs_dir, roster, tmp_path, caplog):
         """Non-dict entries in ssh-keys.json trigger a warning, not a crash."""
         import json
 
-        cfg = _make_proxy_db(tmp_path)
-        cfg.credentials_dir.mkdir(parents=True, exist_ok=True)
+        cfg = _make_vault_db(tmp_path)
+        cfg.vault_dir.mkdir(parents=True, exist_ok=True)
         cfg.ssh_keys_json_path.write_text(json.dumps({"badproj": ["not-a-dict"]}))
 
         spec = _spec(workspace, envs_dir, credential_scope="badproj")
         with (
-            patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+            patch("terok_sandbox.is_vault_socket_active", return_value=True),
             patch("terok_sandbox.SandboxConfig", return_value=cfg),
         ):
-            result = assemble_container_env(spec, roster, caller_manages_proxy=False)
+            result = assemble_container_env(spec, roster, caller_manages_vault=False)
 
-        assert "TEROK_SSH_AGENT_TOKEN" not in result.env
+        assert "TEROK_SSH_SIGNER_TOKEN" not in result.env
         assert any("Malformed entry" in r.message for r in caplog.records)
 
     def test_scan_leaked_creds_emits_warning(self, workspace, envs_dir, roster, caplog):
         """scan_leaked_creds=True logs warnings for leaked files."""
         spec = _spec(workspace, envs_dir, scan_leaked_creds=True)
         with patch(
-            "terok_executor.credentials.proxy_commands.scan_leaked_credentials",
+            "terok_executor.credentials.vault_commands.scan_leaked_credentials",
             return_value=[
                 ("claude", Path("/tmp/terok-testing/mounts/_claude-config/.credentials.json"))
             ],
         ):
-            assemble_container_env(spec, roster, caller_manages_proxy=True)
+            assemble_container_env(spec, roster, caller_manages_vault=True)
         assert any("claude" in r.message for r in caplog.records)
 
 
@@ -667,11 +663,11 @@ class TestTaskDir:
         td = tmp_path / "my-task"
         td.mkdir()
         spec = _spec(workspace, envs_dir, task_dir=td)
-        result = assemble_container_env(spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
         assert result.task_dir == td
 
     def test_auto_creates_temp_dir(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert result.task_dir.exists()
         assert "terok-executor-test-123" in str(result.task_dir)
 
@@ -685,7 +681,7 @@ class TestOpenCodeEnv:
     """Verify OpenCode provider env vars from roster."""
 
     def test_opencode_vars_present(self, base_spec, roster):
-        result = assemble_container_env(base_spec, roster, caller_manages_proxy=True)
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         oc_vars = [k for k in result.env if k.startswith("TEROK_OC_")]
         assert len(oc_vars) > 0
 
@@ -716,11 +712,11 @@ class TestResolveGitIdentityUnit:
 
 
 class TestSharedConfigPatches:
-    """Verify proxy config patches are applied during env assembly."""
+    """Verify vault config patches are applied during env assembly."""
 
     def test_apply_patches_writes_toml(self, roster, tmp_path):
         """Config patches in the roster must produce patched TOML files."""
-        from terok_executor.credentials.proxy_config import apply_shared_config_patches
+        from terok_executor.credentials.vault_config import apply_shared_config_patches
 
         # Create the host mount dir that _shared_config_mounts would create.
         vibe_dir = tmp_path / "_vibe-config"
@@ -728,7 +724,7 @@ class TestSharedConfigPatches:
 
         with (
             patch("terok_sandbox.SandboxConfig"),
-            patch("terok_sandbox.get_proxy_port", return_value=18731),
+            patch("terok_sandbox.get_token_broker_port", return_value=18731),
         ):
             apply_shared_config_patches(roster, tmp_path)
 
@@ -744,27 +740,27 @@ class TestSharedConfigPatches:
         assert "host.containers.internal:18731" in mistral["api_base"]
 
     def test_assemble_env_calls_patches_with_and_without_bypass(self, workspace, envs_dir, roster):
-        """assemble_container_env must invoke patches regardless of caller_manages_proxy."""
+        """assemble_container_env invokes patches regardless of caller_manages_vault."""
         for bypass in (True, False):
             with patch(
-                "terok_executor.credentials.proxy_config.apply_shared_config_patches"
+                "terok_executor.credentials.vault_config.apply_shared_config_patches"
             ) as m_patches:
                 assemble_container_env(
-                    spec=_spec(workspace, envs_dir), roster=roster, caller_manages_proxy=bypass
+                    spec=_spec(workspace, envs_dir), roster=roster, caller_manages_vault=bypass
                 )
 
             m_patches.assert_called_once_with(roster, envs_dir)
 
     def test_patches_idempotent(self, roster, tmp_path):
         """Calling apply_shared_config_patches twice must not duplicate entries."""
-        from terok_executor.credentials.proxy_config import apply_shared_config_patches
+        from terok_executor.credentials.vault_config import apply_shared_config_patches
 
         vibe_dir = tmp_path / "_vibe-config"
         vibe_dir.mkdir()
 
         with (
             patch("terok_sandbox.SandboxConfig"),
-            patch("terok_sandbox.get_proxy_port", return_value=18731),
+            patch("terok_sandbox.get_token_broker_port", return_value=18731),
         ):
             apply_shared_config_patches(roster, tmp_path)
             apply_shared_config_patches(roster, tmp_path)
@@ -781,11 +777,11 @@ class TestSharedConfigPatches:
 
 
 class TestConfigPatchSecurity:
-    """Security constraints on proxy config patching."""
+    """Security constraints on vault config patching."""
 
     def test_path_traversal_rejected(self, tmp_path):
         """Patch file paths with '..' must be rejected."""
-        from terok_executor.credentials.proxy_config import ConfigPatchError, _safe_config_path
+        from terok_executor.credentials.vault_config import ConfigPatchError, _safe_config_path
 
         shared = tmp_path / "mount"
         shared.mkdir()
@@ -794,7 +790,7 @@ class TestConfigPatchSecurity:
 
     def test_absolute_path_rejected(self, tmp_path):
         """Absolute patch file paths must be rejected."""
-        from terok_executor.credentials.proxy_config import ConfigPatchError, _safe_config_path
+        from terok_executor.credentials.vault_config import ConfigPatchError, _safe_config_path
 
         shared = tmp_path / "mount"
         shared.mkdir()
@@ -803,7 +799,7 @@ class TestConfigPatchSecurity:
 
     def test_safe_relative_path_accepted(self, tmp_path):
         """A plain filename stays within the shared dir."""
-        from terok_executor.credentials.proxy_config import _safe_config_path
+        from terok_executor.credentials.vault_config import _safe_config_path
 
         shared = tmp_path / "mount"
         shared.mkdir()
@@ -812,7 +808,7 @@ class TestConfigPatchSecurity:
 
     def test_patch_failure_raises_not_swallows(self, roster, tmp_path):
         """Patch errors must propagate as ConfigPatchError, not be silently logged."""
-        from terok_executor.credentials.proxy_config import (
+        from terok_executor.credentials.vault_config import (
             ConfigPatchError,
             apply_shared_config_patches,
         )
@@ -824,7 +820,7 @@ class TestConfigPatchSecurity:
 
         with (
             patch("terok_sandbox.SandboxConfig"),
-            patch("terok_sandbox.get_proxy_port", return_value=18731),
+            patch("terok_sandbox.get_token_broker_port", return_value=18731),
             pytest.raises(ConfigPatchError, match="Failed to apply"),
         ):
             apply_shared_config_patches(roster, tmp_path)

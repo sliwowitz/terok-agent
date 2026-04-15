@@ -27,7 +27,7 @@ session:
 capabilities:
   log_format: plain
 
-credential_proxy:
+vault:
   route_prefix: vibe
   upstream: https://api.mistral.ai
   auth_header: Authorization

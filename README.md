@@ -6,7 +6,7 @@ Single-agent task runner for hardened Podman containers.
 
 **terok-executor** builds container images, launches instrumented Podman
 containers, and manages the lifecycle of one AI coding agent at a time.
-Every container runs rootless behind an egress firewall with credential
+Every container runs rootless behind an egress firewall with vault
 isolation — real API keys and SSH private keys never enter the container.
 Use it standalone from the CLI or as a Python library for
 [terok](https://github.com/terok-ai/terok) orchestration.
@@ -15,7 +15,7 @@ Use it standalone from the CLI or as a Python library for
 
 ```text
 terok-shield    nftables egress firewall (security boundary)
-terok-sandbox   hardened container runtime (isolation + credential proxy)
+terok-sandbox   hardened container runtime (isolation + vault)
 terok-executor     single-agent task runner (this package)
 terok           project orchestration (TUI, presets, multi-agent)
 ```
@@ -46,7 +46,7 @@ terok-executor run claude . --web           # toad web UI
 | `run-tool` | Run a sidecar tool (e.g. CodeRabbit, SonarCloud) |
 | `ls` | List running terok-executor containers |
 | `stop` | Stop a running container |
-| `proxy` | Credential proxy management (start, stop, status, install, routes) |
+| `vault` | Vault management (start, stop, status, install, routes) |
 
 ## Supported agents
 
@@ -68,7 +68,7 @@ terok-executor run claude . --web           # toad web UI
 - [Getting started](https://terok-ai.github.io/terok-executor/) — install, build, authenticate, first run
 - [Agents](https://terok-ai.github.io/terok-executor/agents/) — catalog, custom definitions, auth flows
 - [Launch modes](https://terok-ai.github.io/terok-executor/launch-modes/) — headless, interactive, web, tool
-- [Security](https://terok-ai.github.io/terok-executor/security/) — firewall, credential proxy, restricted mode
+- [Security](https://terok-ai.github.io/terok-executor/security/) — firewall, vault, restricted mode
 - [API Reference](https://terok-ai.github.io/terok-executor/reference/) — Python API docs
 
 ## Development

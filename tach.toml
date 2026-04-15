@@ -18,7 +18,7 @@ ignore_type_checking_imports = true
 #   roster/      — agent catalog (YAML loading, config resolution)
 #   provider/    — AI provider behavior (headless, wrappers, instructions)
 #   container/   — container lifecycle (build, env, run)
-#   credentials/ — authentication, extraction, credential proxy
+#   credentials/ — authentication, extraction, vault
 
 # ── Foundation ──────────────────────────────────────────────────────
 
@@ -116,8 +116,8 @@ depends_on = []
 [[modules]]
 path = "terok_executor.container.env"
 depends_on = [
-    "terok_executor.credentials.proxy_commands",
-    "terok_executor.credentials.proxy_config",
+    "terok_executor.credentials.vault_commands",
+    "terok_executor.credentials.vault_config",
     "terok_executor.paths",
 ]
 
@@ -135,7 +135,7 @@ depends_on = [
     "terok_executor.roster.loader",
 ]
 
-# ── credentials/ — authentication + credential proxy ────────────────
+# ── credentials/ — authentication + vault ────────────────
 
 # Credential extractors — per-provider credential file parsers
 [[modules]]
@@ -153,7 +153,7 @@ depends_on = [
 
 # Post-auth shared config patching (proxy URL writes)
 [[modules]]
-path = "terok_executor.credentials.proxy_config"
+path = "terok_executor.credentials.vault_config"
 depends_on = [
     "terok_executor.paths",
     "terok_executor.roster.loader",
@@ -161,7 +161,7 @@ depends_on = [
 
 # Credential proxy CLI commands — wraps sandbox lifecycle + route generation
 [[modules]]
-path = "terok_executor.credentials.proxy_commands"
+path = "terok_executor.credentials.vault_commands"
 depends_on = [
     "terok_executor.paths",
     "terok_executor.roster.loader",
@@ -175,7 +175,7 @@ path = "terok_executor.preflight"
 depends_on = [
     "terok_executor.container.build",
     "terok_executor.credentials.auth",
-    "terok_executor.credentials.proxy_config",
+    "terok_executor.credentials.vault_config",
     "terok_executor.paths",
     "terok_executor.roster.loader",
 ]
@@ -189,7 +189,7 @@ depends_on = [
     "terok_executor.container.build",
     "terok_executor.container.runner",
     "terok_executor.credentials.auth",
-    "terok_executor.credentials.proxy_config",
+    "terok_executor.credentials.vault_config",
     "terok_executor.paths",
     "terok_executor.preflight",
     "terok_executor.roster.loader",
@@ -200,7 +200,7 @@ depends_on = [
 path = "terok_executor.cli"
 depends_on = [
     "terok_executor.commands",
-    "terok_executor.credentials.proxy_commands",
+    "terok_executor.credentials.vault_commands",
 ]
 
 # Agent-level container health checks
@@ -219,8 +219,8 @@ depends_on = [
     "terok_executor.container.runner",
     "terok_executor.credentials.auth",
     "terok_executor.credentials.extractors",
-    "terok_executor.credentials.proxy_commands",
-    "terok_executor.credentials.proxy_config",
+    "terok_executor.credentials.vault_commands",
+    "terok_executor.credentials.vault_config",
     "terok_executor.doctor",
     "terok_executor.paths",
     "terok_executor.provider.agents",

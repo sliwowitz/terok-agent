@@ -12,8 +12,8 @@ from terok_executor.preflight import (
     check_credentials,
     check_images,
     check_podman,
-    check_proxy,
     check_shield,
+    check_vault,
     run_preflight,
 )
 
@@ -35,28 +35,28 @@ def test_podman_missing(_which: MagicMock) -> None:
     assert "not found" in r.message
 
 
-# ── check_proxy ──────────────────────────────────────────────────────
+# ── check_vault ──────────────────────────────────────────────────────
 
 
-@patch("terok_sandbox.is_proxy_running", return_value=True)
-@patch("terok_sandbox.is_proxy_socket_active", return_value=False)
-def test_proxy_running(_sock: MagicMock, _run: MagicMock) -> None:
-    """Proxy daemon running → ok."""
-    assert check_proxy().ok is True
+@patch("terok_sandbox.is_vault_running", return_value=True)
+@patch("terok_sandbox.is_vault_socket_active", return_value=False)
+def test_vault_running(_sock: MagicMock, _run: MagicMock) -> None:
+    """Vault daemon running -> ok."""
+    assert check_vault().ok is True
 
 
-@patch("terok_sandbox.is_proxy_running", return_value=False)
-@patch("terok_sandbox.is_proxy_socket_active", return_value=True)
-def test_proxy_socket_active(_sock: MagicMock, _run: MagicMock) -> None:
-    """Proxy systemd socket active → ok."""
-    assert check_proxy().ok is True
+@patch("terok_sandbox.is_vault_running", return_value=False)
+@patch("terok_sandbox.is_vault_socket_active", return_value=True)
+def test_vault_socket_active(_sock: MagicMock, _run: MagicMock) -> None:
+    """Vault systemd socket active -> ok."""
+    assert check_vault().ok is True
 
 
-@patch("terok_sandbox.is_proxy_running", return_value=False)
-@patch("terok_sandbox.is_proxy_socket_active", return_value=False)
-def test_proxy_not_running(_sock: MagicMock, _run: MagicMock) -> None:
-    """Neither running nor socket active → fail."""
-    assert check_proxy().ok is False
+@patch("terok_sandbox.is_vault_running", return_value=False)
+@patch("terok_sandbox.is_vault_socket_active", return_value=False)
+def test_vault_not_running(_sock: MagicMock, _run: MagicMock) -> None:
+    """Neither running nor socket active -> fail."""
+    assert check_vault().ok is False
 
 
 # ── check_credentials ────────────────────────────────────────────────
@@ -135,11 +135,11 @@ def test_shield_missing(mock_env: MagicMock) -> None:
     "terok_executor.preflight.check_credentials",
     return_value=CheckResult("claude creds", True, "stored"),
 )
-@patch("terok_executor.preflight.check_proxy", return_value=CheckResult("proxy", True, "running"))
+@patch("terok_executor.preflight.check_vault", return_value=CheckResult("vault", True, "running"))
 @patch("terok_executor.preflight.check_podman", return_value=CheckResult("podman", True, "ok"))
 def test_preflight_all_ok(
     _pod: MagicMock,
-    _proxy: MagicMock,
+    _vault: MagicMock,
     _creds: MagicMock,
     _imgs: MagicMock,
     _shield: MagicMock,
@@ -160,11 +160,11 @@ def test_preflight_no_podman(_pod: MagicMock) -> None:
     "terok_executor.preflight.check_credentials",
     return_value=CheckResult("claude creds", True, "stored"),
 )
-@patch("terok_executor.preflight.check_proxy", return_value=CheckResult("proxy", True, "running"))
+@patch("terok_executor.preflight.check_vault", return_value=CheckResult("vault", True, "running"))
 @patch("terok_executor.preflight.check_podman", return_value=CheckResult("podman", True, "ok"))
 def test_preflight_shield_missing_still_ok(
     _pod: MagicMock,
-    _proxy: MagicMock,
+    _vault: MagicMock,
     _creds: MagicMock,
     _imgs: MagicMock,
     _shield: MagicMock,
@@ -179,11 +179,11 @@ def test_preflight_shield_missing_still_ok(
     "terok_executor.preflight.check_credentials",
     return_value=CheckResult("claude creds", False, "not found"),
 )
-@patch("terok_executor.preflight.check_proxy", return_value=CheckResult("proxy", True, "running"))
+@patch("terok_executor.preflight.check_vault", return_value=CheckResult("vault", True, "running"))
 @patch("terok_executor.preflight.check_podman", return_value=CheckResult("podman", True, "ok"))
 def test_preflight_creds_missing_non_interactive(
     _pod: MagicMock,
-    _proxy: MagicMock,
+    _vault: MagicMock,
     _creds: MagicMock,
     _imgs: MagicMock,
     _shield: MagicMock,
@@ -201,11 +201,11 @@ def test_preflight_creds_missing_non_interactive(
     "terok_executor.preflight.check_credentials",
     return_value=CheckResult("claude creds", False, "not found"),
 )
-@patch("terok_executor.preflight.check_proxy", return_value=CheckResult("proxy", True, "running"))
+@patch("terok_executor.preflight.check_vault", return_value=CheckResult("vault", True, "running"))
 @patch("terok_executor.preflight.check_podman", return_value=CheckResult("podman", True, "ok"))
 def test_preflight_creds_fixed_interactively(
     _pod: MagicMock,
-    _proxy: MagicMock,
+    _vault: MagicMock,
     _creds: MagicMock,
     _imgs: MagicMock,
     _shield: MagicMock,
