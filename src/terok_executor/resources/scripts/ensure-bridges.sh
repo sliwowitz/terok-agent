@@ -43,25 +43,36 @@ if [[ -n "${TEROK_SSH_AGENT_TOKEN:-}" ]] \
   export SSH_AUTH_SOCK=/tmp/ssh-agent.sock
 fi
 
+# Resolve credential proxy upstream socat target — socket mode preferred.
+# TEROK_PROXY_SOCKET wins when set (mounted host socket), otherwise fall
+# back to TEROK_PROXY_PORT (TCP to host loopback).
+if [[ -n "${TEROK_PROXY_SOCKET:-}" ]]; then
+  _TEROK_PROXY_TARGET="UNIX-CONNECT:${TEROK_PROXY_SOCKET}"
+elif [[ -n "${TEROK_PROXY_PORT:-}" ]]; then
+  _TEROK_PROXY_TARGET="TCP:host.containers.internal:${TEROK_PROXY_PORT}"
+else
+  _TEROK_PROXY_TARGET=""
+fi
+
 # ── gh credential proxy bridge ───────────────────────────────────────────
-if [[ -n "${TEROK_PROXY_PORT:-}" ]] && [[ -n "${GH_TOKEN:-}" ]] \
+if [[ -n "${_TEROK_PROXY_TARGET}" ]] && [[ -n "${GH_TOKEN:-}" ]] \
    && command -v socat >/dev/null 2>&1 \
    && ! _terok_bridge_alive "$_TEROK_PIDDIR/gh-proxy.pid"; then
   rm -f /tmp/terok-gh-proxy.sock
   socat UNIX-LISTEN:/tmp/terok-gh-proxy.sock,fork \
-    TCP:host.containers.internal:"${TEROK_PROXY_PORT}" &
+    "${_TEROK_PROXY_TARGET}" &
   echo $! > "$_TEROK_PIDDIR/gh-proxy.pid"
 fi
 
 # ── Claude credential proxy bridge (ANTHROPIC_UNIX_SOCKET transport) ────
 # Routes Claude API traffic through the credential proxy via a Unix socket
 # instead of ANTHROPIC_BASE_URL (enables OAuth subscription mode in Claude Code).
-if [[ -n "${TEROK_PROXY_PORT:-}" ]] && [[ -n "${ANTHROPIC_UNIX_SOCKET:-}" ]] \
+if [[ -n "${_TEROK_PROXY_TARGET}" ]] && [[ -n "${ANTHROPIC_UNIX_SOCKET:-}" ]] \
    && command -v socat >/dev/null 2>&1 \
    && ! _terok_bridge_alive "$_TEROK_PIDDIR/claude-proxy.pid"; then
   rm -f "${ANTHROPIC_UNIX_SOCKET}"
   socat UNIX-LISTEN:"${ANTHROPIC_UNIX_SOCKET}",fork \
-    TCP:host.containers.internal:"${TEROK_PROXY_PORT}" &
+    "${_TEROK_PROXY_TARGET}" &
   echo $! > "$_TEROK_PIDDIR/claude-proxy.pid"
 fi
 

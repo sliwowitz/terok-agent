@@ -454,7 +454,10 @@ def _inject_proxy_tokens(
             env["API_PROTOCOL"] = "http"
 
     if routed:
-        env["TEROK_PROXY_PORT"] = str(port)
+        if use_socket:
+            env["TEROK_PROXY_SOCKET"] = f"{_CONTAINER_RUNTIME_DIR}/{cfg.proxy_socket_path.name}"
+        else:
+            env["TEROK_PROXY_PORT"] = str(port)
 
     if ssh_token:
         env["TEROK_SSH_AGENT_TOKEN"] = ssh_token
