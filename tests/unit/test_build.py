@@ -17,6 +17,7 @@ from terok_executor.container.build import (
     _normalize_base_image,
     build_base_images,
     build_sidecar_image,
+    detect_family,
     l0_image_tag,
     l1_image_tag,
     l1_sidecar_image_tag,
@@ -290,12 +291,12 @@ class TestTemplateRendering:
         assert "container-tmux.conf" in content
 
     def test_l0_contains_base_image_arg(self) -> None:
-        # Templates use Dockerfile ARG/FROM ${VAR} — Jinja2 is a pass-through
-        # for now. Verify the ARG directive and default value are present.
-        content = render_l0("busybox:1.36")
+        # Templates rely on Dockerfile ARG/FROM ${VAR} for the BASE_IMAGE
+        # passthrough; Jinja2 only switches the package-manager branch.
+        # Use family override to keep the test independent of the prefix
+        # allowlist.
+        content = render_l0("busybox:1.36", family="deb")
         assert "ARG BASE_IMAGE=" in content
-        # The default in the template is ubuntu:24.04; the render arg becomes
-        # a --build-arg at podman build time, not a template substitution.
         assert "FROM ${BASE_IMAGE}" in content
 
     def test_l0_renders_with_custom_base(self) -> None:
@@ -557,3 +558,164 @@ class TestBuildSidecarImage:
             pytest.raises(BuildError, match="Sidecar image build failed"),
         ):
             build_sidecar_image(build_dir=build_dir)
+
+
+# ---------------------------------------------------------------------------
+# Package family detection + family-aware template rendering
+# ---------------------------------------------------------------------------
+
+
+class TestDetectFamily:
+    """Verify the deb/rpm allowlist + override behaviour."""
+
+    @pytest.mark.parametrize(
+        ("base_image", "expected"),
+        [
+            ("ubuntu:24.04", "deb"),
+            ("ubuntu", "deb"),
+            ("debian:12", "deb"),
+            ("nvcr.io/nvidia/nvhpc:25.9-devel-cuda13.0-ubuntu24.04", "deb"),
+            ("nvidia/cuda:12.4.1-devel-ubuntu24.04", "deb"),
+            ("fedora:43", "rpm"),
+            ("registry.fedoraproject.org/fedora:43", "rpm"),
+            ("quay.io/containers/podman:latest", "rpm"),
+        ],
+    )
+    def test_known_prefixes(self, base_image: str, expected: str) -> None:
+        assert detect_family(base_image) == expected
+
+    def test_override_wins(self) -> None:
+        # Override forces the family even when the prefix would resolve
+        # to the other branch.
+        assert detect_family("ubuntu:24.04", override="rpm") == "rpm"
+
+    def test_override_allows_unknown(self) -> None:
+        assert detect_family("rockylinux:9", override="rpm") == "rpm"
+
+    def test_unknown_raises_with_hint(self) -> None:
+        with pytest.raises(BuildError, match="family: deb"):
+            detect_family("rockylinux:9")
+
+    def test_invalid_override_rejected(self) -> None:
+        with pytest.raises(BuildError, match="must be 'deb' or 'rpm'"):
+            detect_family("ubuntu:24.04", override="alpine")
+
+    def test_blank_falls_back_to_default(self) -> None:
+        # _normalize_base_image turns blank into ubuntu:24.04 → deb.
+        assert detect_family("") == "deb"
+
+
+class TestRenderFamilyAware:
+    """Verify L0/L1/sidecar templates emit the right package-manager branch."""
+
+    def test_l0_deb_uses_apt(self) -> None:
+        content = render_l0("ubuntu:24.04")
+        assert "apt-get install" in content
+        assert "locale-gen" in content
+        assert "DEBIAN_FRONTEND=noninteractive" in content
+        assert "dnf install" not in content
+
+    def test_l0_rpm_uses_dnf(self) -> None:
+        content = render_l0("fedora:43")
+        assert "dnf install" in content
+        assert "glibc-langpack-en" in content
+        assert "openssh-clients" in content
+        assert "apt-get" not in content
+        assert "DEBIAN_FRONTEND" not in content
+
+    def test_l0_podman_image_is_rpm(self) -> None:
+        content = render_l0("quay.io/containers/podman:latest")
+        assert "dnf install" in content
+        assert "apt-get" not in content
+
+    def test_l0_unknown_image_raises(self) -> None:
+        with pytest.raises(BuildError, match="Cannot infer package family"):
+            render_l0("rockylinux:9")
+
+    def test_l0_explicit_family_overrides(self) -> None:
+        content = render_l0("rockylinux:9", family="rpm")
+        assert "dnf install" in content
+
+    def test_l1_deb_uses_apt_and_deb_repos(self) -> None:
+        content = render_l1("terok-l0:test", family="deb")
+        assert "apt-get install" in content
+        assert "deb.nodesource.com/setup_22.x" in content
+        assert "/etc/apt/keyrings/githubcli" in content
+        assert "glab_${GLAB_VERSION}_linux_${ARCH}.deb" in content
+        assert "dpkg -i /tmp/glab.pkg" in content
+
+    def test_l1_rpm_uses_dnf_and_rpm_repos(self) -> None:
+        content = render_l1("terok-l0:test", family="rpm")
+        assert "dnf install" in content
+        assert "rpm.nodesource.com/setup_22.x" in content
+        assert "/etc/yum.repos.d/gh-cli.repo" in content
+        assert "glab_${GLAB_VERSION}_linux_${ARCH}.rpm" in content
+        assert "dnf install -y /tmp/glab.pkg" in content
+        assert "apt-get" not in content
+        assert "dpkg" not in content
+
+    def test_l1_uses_uname_for_binary_tools(self) -> None:
+        # Binary-tool installs (yq, glab, sonar) detect arch via uname so
+        # the same shell snippet works on both families.  The deb branch
+        # still uses dpkg in the apt-source registration line — that's
+        # apt-specific and unrelated to binary downloads.
+        for fam in ("deb", "rpm"):
+            content = render_l1("terok-l0:test", family=fam)
+            assert 'case "$(uname -m)"' in content
+        rpm_content = render_l1("terok-l0:test", family="rpm")
+        assert "dpkg" not in rpm_content
+
+    def test_l1_sidecar_deb_uses_apt(self) -> None:
+        content = render_l1_sidecar("terok-l0:test", family="deb")
+        assert "apt-get install" in content
+        assert "DEBIAN_FRONTEND" in content
+
+    def test_l1_sidecar_rpm_uses_dnf(self) -> None:
+        content = render_l1_sidecar("terok-l0:test", family="rpm")
+        assert "dnf install" in content
+        assert "apt-get" not in content
+        assert "DEBIAN_FRONTEND" not in content
+
+
+class TestBuildBaseImagesFamily:
+    """Verify build_base_images resolves and threads the family kwarg."""
+
+    def test_fedora_renders_dnf_dockerfile(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        build_dir = tmp_path / "ctx"
+        with (
+            patch("terok_executor.container.build._check_podman"),
+            patch("terok_executor.container.build._image_exists", return_value=False),
+            patch("subprocess.run"),
+        ):
+            build_base_images("fedora:43", build_dir=build_dir)
+
+        l0 = (build_dir / "L0.Dockerfile").read_text()
+        l1 = (build_dir / "L1.cli.Dockerfile").read_text()
+        assert "dnf install" in l0 and "apt-get" not in l0
+        assert "dnf install" in l1 and "apt-get" not in l1
+
+    def test_unknown_image_raises_buildError(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        build_dir = tmp_path / "ctx"
+        with (
+            patch("terok_executor.container.build._check_podman"),
+            patch("terok_executor.container.build._image_exists", return_value=False),
+            pytest.raises(BuildError, match="Cannot infer package family"),
+        ):
+            build_base_images("rockylinux:9", build_dir=build_dir)
+
+    def test_family_override_unblocks_unknown_image(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        build_dir = tmp_path / "ctx"
+        with (
+            patch("terok_executor.container.build._check_podman"),
+            patch("terok_executor.container.build._image_exists", return_value=False),
+            patch("subprocess.run"),
+        ):
+            build_base_images("rockylinux:9", family="rpm", build_dir=build_dir)
+
+        assert "dnf install" in (build_dir / "L0.Dockerfile").read_text()

@@ -2,15 +2,16 @@
 ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    REPO_ROOT="/workspace" \
+ENV {% if family == "deb" %}DEBIAN_FRONTEND=noninteractive \
+    {% endif %}REPO_ROOT="/workspace" \
     GIT_RESET_MODE="none" \
     LANG="en_US.UTF-8" \
     LC_ALL="en_US.UTF-8" \
     LANGUAGE="en_US:en" \
     USER="dev"
 
-# Basic dev tooling common to all projects
+# Basic dev tooling common to all projects.
+{% if family == "deb" -%}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg git locales openssh-client socat sudo \
       ripgrep vim tmux \
@@ -21,6 +22,13 @@ RUN set -eux; \
     sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen; \
     grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; \
     locale-gen en_US.UTF-8
+{%- else -%}
+# glibc-langpack-en provides en_US.UTF-8 directly — no locale-gen step needed.
+RUN dnf install -y --setopt=install_weak_deps=False \
+      ca-certificates curl gnupg2 git glibc-langpack-en openssh-clients \
+      socat sudo ripgrep vim tmux \
+    && dnf clean all
+{%- endif %}
 
 RUN set -eux; \
     uid_owner="$(getent passwd 1000 | cut -d: -f1 || true)"; \

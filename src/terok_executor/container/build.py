@@ -8,7 +8,7 @@ staging, image naming, and ``podman build`` invocation.
 
 **Image layer architecture**::
 
-    L0  (base)   — Ubuntu + dev tools + init script + dev user
+    L0  (base)   — Distro + dev tools + init script + dev user
     L1  (agent)  — All AI agent CLIs, shell environment, ACP wrappers
                    L1 is self-sufficient for standalone use — all user
                    config (repo URL, SSH, branch, gate) is runtime.
@@ -27,9 +27,9 @@ Usage as a library::
     # images.l0 = "terok-l0:ubuntu-24.04"
     # images.l1 = "terok-l1-cli:ubuntu-24.04"
 
-The templates currently use Dockerfile ``ARG``/``${VAR}`` syntax.
-Jinja2 is wired in for future use — converting L1 install blocks to
-registry-driven ``{% for agent %}`` loops.
+The L0/L1 templates select between Debian/Ubuntu (``apt``) and Fedora-like
+(``dnf``) package managers via a ``family`` Jinja2 variable resolved by
+:func:`detect_family` from the base image name (or an explicit override).
 """
 
 from __future__ import annotations
@@ -51,6 +51,23 @@ DEFAULT_BASE_IMAGE = "ubuntu:24.04"
 
 _DEFAULT_TAG = "ubuntu-24.04"
 """Pre-sanitized tag fragment for the default base image."""
+
+# Known base-image prefixes mapped to their package family.  Order matters
+# only for prefixes that share a leading segment — there are none here.
+# "Officially tested" (per AGENTS.md): ubuntu:24.04, fedora:43,
+# quay.io/containers/podman, nvcr.io/nvidia/nvhpc.  Other images in the
+# same family path will be matched but are unsupported.
+_KNOWN_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("registry.fedoraproject.org/fedora", "rpm"),
+    ("quay.io/containers/podman", "rpm"),
+    ("nvcr.io/nvidia", "deb"),
+    ("nvidia", "deb"),
+    ("ubuntu", "deb"),
+    ("debian", "deb"),
+    ("fedora", "rpm"),
+)
+
+_VALID_FAMILIES: frozenset[str] = frozenset({"deb", "rpm"})
 
 
 class BuildError(RuntimeError):
@@ -78,9 +95,35 @@ class ImageSet:
 # ── Public entry points ──
 
 
+def detect_family(base_image: str, override: str | None = None) -> str:
+    """Resolve the package family (``deb`` or ``rpm``) for *base_image*.
+
+    *override* — when set, must be ``"deb"`` or ``"rpm"`` and wins over
+    detection (used to support unknown bases via project config).
+
+    Detection matches a small allowlist of known image prefixes
+    (Ubuntu/Debian, Fedora, the official Podman container, NVIDIA CUDA/HPC
+    SDK).  Unknown images raise :class:`BuildError` with a hint to set
+    ``family:`` explicitly.
+    """
+    if override is not None:
+        if override not in _VALID_FAMILIES:
+            raise BuildError(f"family must be 'deb' or 'rpm', got {override!r}")
+        return override
+    name = _normalize_base_image(base_image).split(":", 1)[0].lower()
+    for prefix, fam in _KNOWN_FAMILIES:
+        if name == prefix or name.startswith(prefix + "/"):
+            return fam
+    raise BuildError(
+        f"Cannot infer package family for base image {base_image!r}. "
+        "Set `family: deb` or `family: rpm` under image: in project.yml."
+    )
+
+
 def build_base_images(
     base_image: str = DEFAULT_BASE_IMAGE,
     *,
+    family: str | None = None,
     rebuild: bool = False,
     full_rebuild: bool = False,
     build_dir: Path | None = None,
@@ -94,6 +137,8 @@ def build_base_images(
 
     Args:
         base_image: Base OS image (e.g. ``ubuntu:24.04``, ``nvidia/cuda:...``).
+        family: Override for the package family (``"deb"`` or ``"rpm"``).
+            ``None`` means detect from *base_image* via :func:`detect_family`.
         rebuild: Force rebuild with cache bust (refreshes agent installs).
         full_rebuild: Force rebuild with ``--no-cache --pull=always``.
         build_dir: Build context directory (must be empty or absent).
@@ -102,13 +147,15 @@ def build_base_images(
         :class:`ImageSet` with the L0 and L1 image tags.
 
     Raises:
-        BuildError: If podman is missing or a build step fails.
+        BuildError: If podman is missing, the family cannot be resolved,
+            or a build step fails.
         ValueError: If *build_dir* is a file or a non-empty directory.
     """
     _validate_build_dir(build_dir)
     _check_podman()
 
     base_image = _normalize_base_image(base_image)
+    fam = detect_family(base_image, override=family)
     l0_tag = l0_image_tag(base_image)
     l1_tag = l1_image_tag(base_image)
 
@@ -130,8 +177,10 @@ def build_base_images(
         cache_bust = str(int(time.time()))
 
         # Render and write Dockerfiles into the build context
-        (context / "L0.Dockerfile").write_text(render_l0(base_image))
-        (context / "L1.cli.Dockerfile").write_text(render_l1(l0_tag, cache_bust=cache_bust))
+        (context / "L0.Dockerfile").write_text(render_l0(base_image, family=fam))
+        (context / "L1.cli.Dockerfile").write_text(
+            render_l1(l0_tag, family=fam, cache_bust=cache_bust)
+        )
 
         ctx = str(context)
 
@@ -170,6 +219,7 @@ def build_base_images(
 def build_sidecar_image(
     base_image: str = DEFAULT_BASE_IMAGE,
     *,
+    family: str | None = None,
     tool_name: str = "coderabbit",
     rebuild: bool = False,
     full_rebuild: bool = False,
@@ -183,6 +233,8 @@ def build_sidecar_image(
 
     Args:
         base_image: Base OS image (passed through to L0 build).
+        family: Override for the package family (``"deb"`` or ``"rpm"``).
+            ``None`` means detect from *base_image* via :func:`detect_family`.
         tool_name: Tool to install (selects Jinja2 conditional in template).
         rebuild: Force rebuild with cache bust.
         full_rebuild: Force rebuild with ``--no-cache``.
@@ -192,13 +244,15 @@ def build_sidecar_image(
         The sidecar image tag (e.g. ``terok-l1-sidecar:ubuntu-24.04``).
 
     Raises:
-        BuildError: If podman is missing or a build step fails.
+        BuildError: If podman is missing, the family cannot be resolved,
+            or a build step fails.
         ValueError: If *build_dir* is a file or a non-empty directory.
     """
     _validate_build_dir(build_dir)
     _check_podman()
 
     base_image = _normalize_base_image(base_image)
+    fam = detect_family(base_image, override=family)
     l0_tag = l0_image_tag(base_image)
     sidecar_tag = l1_sidecar_image_tag(base_image)
 
@@ -207,7 +261,7 @@ def build_sidecar_image(
 
     # Ensure L0 exists (build if needed)
     if not _image_exists(l0_tag) or full_rebuild:
-        build_base_images(base_image, rebuild=rebuild, full_rebuild=full_rebuild)
+        build_base_images(base_image, family=fam, rebuild=rebuild, full_rebuild=full_rebuild)
 
     import tempfile
 
@@ -219,7 +273,7 @@ def build_sidecar_image(
         cache_bust = str(int(time.time()))
 
         (context / "L1.sidecar.Dockerfile").write_text(
-            render_l1_sidecar(l0_tag, tool_name=tool_name, cache_bust=cache_bust)
+            render_l1_sidecar(l0_tag, family=fam, tool_name=tool_name, cache_bust=cache_bust)
         )
 
         cmd = ["podman", "build", "-f", str(context / "L1.sidecar.Dockerfile")]
@@ -267,43 +321,59 @@ def prepare_build_context(dest: Path) -> None:
 # ── Dockerfile rendering ──
 
 
-def render_l0(base_image: str = DEFAULT_BASE_IMAGE) -> str:
+def render_l0(base_image: str = DEFAULT_BASE_IMAGE, *, family: str | None = None) -> str:
     """Render the L0 (base dev) Dockerfile.
 
     The *base_image* is normalised before rendering so that blank or
-    whitespace-only values produce a valid Dockerfile.
+    whitespace-only values produce a valid Dockerfile.  *family*
+    (``"deb"`` or ``"rpm"``) selects the package-manager branch of the
+    template; ``None`` resolves it via :func:`detect_family`.
     """
+    base_image = _normalize_base_image(base_image)
+    fam = detect_family(base_image, override=family)
     return _render_template(
         "l0.dev.Dockerfile.template",
-        {"BASE_IMAGE": _normalize_base_image(base_image)},
+        {"BASE_IMAGE": base_image, "family": fam},
     )
 
 
-def render_l1(l0_image: str, *, cache_bust: str = "0") -> str:
+def render_l1(l0_image: str, *, family: str = "deb", cache_bust: str = "0") -> str:
     """Render the L1 (agent CLI) Dockerfile.
 
-    *l0_image* is the tag of the L0 image to build on top of.
-    *cache_bust* invalidates the agent-install layers when changed
-    (typically set to a Unix timestamp).
+    *l0_image* is the tag of the L0 image to build on top of.  *family*
+    (``"deb"`` or ``"rpm"``) selects the package-manager branch of the
+    template — defaults to ``"deb"`` for callers that don't yet thread
+    the value through.  *cache_bust* invalidates the agent-install
+    layers when changed (typically set to a Unix timestamp).
     """
     return _render_template(
         "l1.agent-cli.Dockerfile.template",
-        {"BASE_IMAGE": l0_image, "AGENT_CACHE_BUST": cache_bust},
+        {"BASE_IMAGE": l0_image, "AGENT_CACHE_BUST": cache_bust, "family": family},
     )
 
 
 def render_l1_sidecar(
-    l0_image: str, *, tool_name: str = "coderabbit", cache_bust: str = "0"
+    l0_image: str,
+    *,
+    family: str = "deb",
+    tool_name: str = "coderabbit",
+    cache_bust: str = "0",
 ) -> str:
     """Render the L1 sidecar (tool-only) Dockerfile.
 
     The sidecar image is built FROM L0 (not L1) and installs a single
-    tool binary — no agent CLIs, no LLMs.  The *tool_name* selects which
-    tool install block to activate via Jinja2 conditional.
+    tool binary — no agent CLIs, no LLMs.  *family* selects the
+    package-manager branch; *tool_name* selects which tool install block
+    to activate via Jinja2 conditional.
     """
     return _render_template(
         "l1.sidecar.Dockerfile.template",
-        {"BASE_IMAGE": l0_image, "TOOL_CACHE_BUST": cache_bust, "tool_name": tool_name},
+        {
+            "BASE_IMAGE": l0_image,
+            "TOOL_CACHE_BUST": cache_bust,
+            "tool_name": tool_name,
+            "family": family,
+        },
     )
 
 

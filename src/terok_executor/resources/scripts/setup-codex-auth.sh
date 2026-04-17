@@ -19,8 +19,15 @@ echo '>> Setting up port forwarding for codex auth (port 1455)'
 # Install required packages if not present
 if ! command -v socat >/dev/null 2>&1 || ! command -v ip >/dev/null 2>&1; then
   echo '>> Installing required packages...'
-  sudo apt-get update -qq
-  sudo apt-get install -y socat iproute2
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq
+    sudo apt-get install -y socat iproute2
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y socat iproute
+  else
+    echo '>> ERROR: no supported package manager (apt-get/dnf)' >&2
+    exit 1
+  fi
 else
   echo '>> Required packages already installed'
 fi

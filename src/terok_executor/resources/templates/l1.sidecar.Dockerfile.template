@@ -5,15 +5,20 @@
 ARG BASE_IMAGE=terok-l0:latest
 FROM ${BASE_IMAGE}
 
-ENV DEBIAN_FRONTEND=noninteractive
-USER root
+{% if family == "deb" %}ENV DEBIAN_FRONTEND=noninteractive
+{% endif %}USER root
 
 # Minimal extras for tool install scripts.
 # L0 already provides: git, SSH, curl, ca-certificates, locale, dev user,
 # init-ssh-and-repo.sh, ensure-bridges.sh, ssh-agent-bridge.sh.
+{% if family == "deb" -%}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
     && rm -rf /var/lib/apt/lists/*
+{%- else -%}
+RUN dnf install -y --setopt=install_weak_deps=False unzip \
+    && dnf clean all
+{%- endif %}
 
 ARG TOOL_CACHE_BUST=0
 
