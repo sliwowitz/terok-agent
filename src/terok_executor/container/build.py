@@ -30,6 +30,13 @@ Usage as a library::
 The L0/L1 templates select between Debian/Ubuntu (``apt``) and Fedora-like
 (``dnf``) package managers via a ``family`` Jinja2 variable resolved by
 :func:`detect_family` from the base image name (or an explicit override).
+
+L1 is roster-driven: each agent's install steps live in its YAML file
+(``install.run_as_root`` / ``install.run_as_dev``), and the L1 template
+loops over the resolved selection.  Build emits an OCI label
+``ai.terok.agents=<csv>``, an in-container manifest
+``/etc/terok/installed.env``, and pre-rendered ``hilfe`` help fragments —
+all derived from the same selection.
 """
 
 from __future__ import annotations
@@ -140,6 +147,7 @@ def build_base_images(
     base_image: str = DEFAULT_BASE_IMAGE,
     *,
     family: str | None = None,
+    agents: str | tuple[str, ...] = "all",
     rebuild: bool = False,
     full_rebuild: bool = False,
     build_dir: Path | None = None,
@@ -155,6 +163,10 @@ def build_base_images(
         base_image: Base OS image (e.g. ``ubuntu:24.04``, ``nvidia/cuda:...``).
         family: Override for the package family (``"deb"`` or ``"rpm"``).
             ``None`` means detect from *base_image* via :func:`detect_family`.
+        agents: Roster entries to install, as the literal string ``"all"``
+            (every entry) or a tuple of names (transitively expanded by
+            ``depends_on``).  Same selection drives the OCI label, the L1
+            tag suffix, the in-container manifest, and the help fragments.
         rebuild: Force rebuild with cache bust (refreshes agent installs).
         full_rebuild: Force rebuild with ``--no-cache --pull=always``.
         build_dir: Build context directory (must be empty or absent).
@@ -165,14 +177,20 @@ def build_base_images(
     Raises:
         BuildError: If podman is missing, the family cannot be resolved,
             or a build step fails.
-        ValueError: If *build_dir* is a file or a non-empty directory.
+        ValueError: If *build_dir* is a file or a non-empty directory,
+            or if *agents* contains unknown roster entries.
     """
+    from terok_executor.roster.loader import get_roster
+
     _validate_build_dir(build_dir)
     _check_podman()
 
     base_image = _normalize_base_image(base_image)
+    selected = get_roster().resolve_selection(agents)
+
     l0_tag = l0_image_tag(base_image)
-    l1_tag = l1_image_tag(base_image)
+    l1_tag = l1_image_tag(base_image, selected)
+    l1_alias = l1_image_tag(base_image)  # unsuffixed "latest" alias
 
     # Skip if both images exist and no forced rebuild — done before
     # detect_family() so cached images for unknown bases (built earlier
@@ -191,6 +209,7 @@ def build_base_images(
 
     try:
         prepare_build_context(context)
+        stage_help_fragments(context / "help.d", selected)
 
         # Single timestamp for both render and build-arg consistency
         cache_bust = str(int(time.time()))
@@ -198,7 +217,7 @@ def build_base_images(
         # Render and write Dockerfiles into the build context
         (context / "L0.Dockerfile").write_text(render_l0(base_image, family=fam))
         (context / "L1.cli.Dockerfile").write_text(
-            render_l1(l0_tag, family=fam, cache_bust=cache_bust)
+            render_l1(l0_tag, family=fam, agents=selected, cache_bust=cache_bust)
         )
 
         ctx = str(context)
@@ -214,11 +233,13 @@ def build_base_images(
         print("$", shlex.join(cmd_l0))
         subprocess.run(cmd_l0, check=True)
 
-        # Build L1 — agent CLI layer (all agent installs, shell env, ACP wrappers)
+        # Build L1 — agent CLI layer (selected agents, shell env, ACP wrappers).
+        # Tagged twice: with the agent-set suffix (addressable, coexists with
+        # other selections) and with the unsuffixed alias (most-recent build).
         cmd_l1 = ["podman", "build", "-f", str(context / "L1.cli.Dockerfile")]
         cmd_l1 += ["--build-arg", f"BASE_IMAGE={l0_tag}"]
         cmd_l1 += ["--build-arg", f"AGENT_CACHE_BUST={cache_bust}"]
-        cmd_l1 += ["-t", l1_tag]
+        cmd_l1 += ["-t", l1_tag, "-t", l1_alias]
         if full_rebuild:
             cmd_l1.append("--no-cache")
         cmd_l1.append(ctx)
@@ -360,19 +381,53 @@ def render_l0(base_image: str = DEFAULT_BASE_IMAGE, *, family: str | None = None
     )
 
 
-def render_l1(l0_image: str, *, family: str, cache_bust: str = "0") -> str:
-    """Render the L1 (agent CLI) Dockerfile.
+def render_l1(
+    l0_image: str,
+    *,
+    family: str,
+    agents: tuple[str, ...] | str = "all",
+    cache_bust: str = "0",
+) -> str:
+    """Render the L1 (agent CLI) Dockerfile for the given agent selection.
 
     *l0_image* is the tag of the L0 image to build on top of.  *family*
     (``"deb"`` or ``"rpm"``) selects the package-manager branch and is
-    required — there is no L0 reference to detect from at this point,
-    so callers must supply the value resolved at the L0 level (typically
-    via :func:`detect_family`).  *cache_bust* invalidates the agent-install
-    layers when changed (typically set to a Unix timestamp).
+    required — there is no L0 reference to detect from at this point, so
+    callers must supply the value resolved at the L0 level (typically via
+    :func:`detect_family`).  Each roster install snippet is itself rendered
+    as a Jinja template with ``family`` in scope, so snippets can carry
+    ``{% if family == "deb" %}…{% else %}…{% endif %}`` branches for
+    package-manager-specific commands.  *agents* is a tuple of
+    already-resolved roster names (or the literal string ``"all"``); the
+    template loops over them and emits each one's install snippets.
+    *cache_bust* invalidates the per-agent install layers when changed
+    (typically set to a Unix timestamp).
     """
+    from terok_executor.roster.loader import get_roster
+
+    roster = get_roster()
+    # resolve_selection is idempotent on already-expanded tuples, so callers
+    # may pass either a raw user selection or a pre-resolved one.
+    selected = roster.resolve_selection(agents)
+    installs = roster.installs
+
+    root_snippets = [
+        _render_snippet(installs[n].run_as_root, family) for n in selected if installs[n].run_as_root
+    ]
+    dev_snippets = [
+        _render_snippet(installs[n].run_as_dev, family) for n in selected if installs[n].run_as_dev
+    ]
+
     return _render_template(
         "l1.agent-cli.Dockerfile.template",
-        {"BASE_IMAGE": l0_image, "AGENT_CACHE_BUST": cache_bust, "family": family},
+        {
+            "BASE_IMAGE": l0_image,
+            "AGENT_CACHE_BUST": cache_bust,
+            "family": family,
+            "install_root_snippets": root_snippets,
+            "install_dev_snippets": dev_snippets,
+            "installed_agents_csv": ",".join(selected),
+        },
     )
 
 
@@ -429,6 +484,38 @@ def stage_toad_agents(dest: Path) -> None:
     _clean_packaging_artifacts(dest)
 
 
+def stage_help_fragments(dest: Path, agents: tuple[str, ...]) -> None:
+    """Render per-section ``hilfe`` help fragments into *dest*.
+
+    Writes one file per section (currently ``agent`` and ``dev_tool``)
+    containing the labels of the selected agents that have a ``help:``
+    section, with backslash escapes (``\\033[...]``) interpreted into
+    real ANSI sequences so that ``hilfe`` only needs to ``cat`` them.
+    Empty sections are omitted entirely; ``hilfe`` skips missing files.
+    """
+    from terok_executor.roster.loader import get_roster
+
+    roster = get_roster()
+    helps = roster.helps
+
+    by_section: dict[str, list[str]] = {}
+    for name in agents:
+        spec = helps.get(name)
+        if spec is None or not spec.label:
+            continue
+        by_section.setdefault(spec.section, []).append(spec.label)
+
+    section_files = {"agent": "agents.txt", "dev_tool": "dev-tools.txt"}
+
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    for section, lines in by_section.items():
+        filename = section_files.get(section, f"{section}.txt")
+        decoded = "".join(bytes(line, "utf-8").decode("unicode_escape") + "\n" for line in lines)
+        (dest / filename).write_text(decoded, encoding="utf-8")
+
+
 def stage_tmux_config(dest: Path) -> None:
     """Stage the container tmux configuration into *dest*.
 
@@ -449,9 +536,20 @@ def l0_image_tag(base_image: str) -> str:
     return f"terok-l0:{_base_tag(base_image)}"
 
 
-def l1_image_tag(base_image: str) -> str:
-    """Return the L1 agent CLI image tag for *base_image*."""
-    return f"terok-l1-cli:{_base_tag(base_image)}"
+def l1_image_tag(base_image: str, agents: tuple[str, ...] | None = None) -> str:
+    """Return the L1 agent CLI image tag for *base_image* and a selection.
+
+    When *agents* is ``None``, returns the unsuffixed alias
+    (e.g. ``terok-l1-cli:ubuntu-24.04``) — the moving handle that always
+    points at the most recent build.  When *agents* is a tuple of names,
+    appends a sorted ``+a+b+c`` suffix so multiple selections can coexist
+    in the local image store and stay individually addressable.
+    """
+    base = f"terok-l1-cli:{_base_tag(base_image)}"
+    if agents is None:
+        return base
+    suffix = "+".join(sorted(agents)) if agents else "empty"
+    return f"{base}+{suffix}"
 
 
 def l1_sidecar_image_tag(base_image: str) -> str:
@@ -510,10 +608,9 @@ def _base_tag(base_image: str) -> str:
 def _render_template(template_name: str, variables: dict[str, str]) -> str:
     """Render a Jinja2 Dockerfile template from package resources.
 
-    Templates live in ``resources/templates/``.  Currently they use
-    Dockerfile ``ARG``/``${VAR}`` syntax (Jinja2 is a pass-through).
-    Future L1 templatisation will use ``{% for agent %}`` loops driven
-    by the YAML agent roster.
+    Templates live in ``resources/templates/``.  The L0/L1 templates
+    branch on a ``family`` variable (``deb``/``rpm``); the L1 template
+    also iterates over pre-rendered per-agent install snippets.
     """
     from jinja2 import BaseLoader, Environment
 
@@ -525,6 +622,24 @@ def _render_template(template_name: str, variables: dict[str, str]) -> str:
     )
     tmpl = env.from_string(raw)
     return tmpl.render(**variables)
+
+
+def _render_snippet(snippet: str, family: str) -> str:
+    """Render a per-agent install snippet as a Jinja string with *family* in scope.
+
+    Roster install snippets are stored as plain Dockerfile text in each
+    agent YAML.  They may contain ``{% if family == "deb" %}…{% else %}…
+    {% endif %}`` branches so that package-manager-specific commands
+    (apt vs dnf, .deb vs .rpm download) live alongside the rest of the
+    agent's install steps.  Non-family-aware snippets pass through
+    unchanged.
+    """
+    from jinja2 import BaseLoader, Environment
+
+    env = Environment(  # nosec B701 — Dockerfile output, not HTML
+        loader=BaseLoader(), keep_trailing_newline=True, autoescape=False
+    )
+    return env.from_string(snippet).render(family=family)
 
 
 def _copy_package_tree(package: str, rel_path: str, dest: Path) -> None:

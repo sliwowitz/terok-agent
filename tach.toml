@@ -103,7 +103,9 @@ depends_on = [
 # Build resource staging — standalone
 [[modules]]
 path = "terok_executor.container.build"
-depends_on = []
+depends_on = [
+    "terok_executor.roster.loader",
+]
 
 # Clone-cache workspace seeding — copies cached clone into task workspace
 [[modules]]

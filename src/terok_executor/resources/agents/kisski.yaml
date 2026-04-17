@@ -47,3 +47,14 @@ opencode:
 
 # OpenCode runtime mounts are defined in opencode.yaml and deduplicated
 # by the registry — no need to repeat them here.
+
+install:
+  depends_on: [opencode]
+  run_as_root: |
+    RUN set -eux; \
+        ln -sf opencode-provider     /usr/local/bin/kisski; \
+        ln -sf opencode-provider-acp /usr/local/bin/kisski-acp; \
+        ln -sf opencode-toad         /usr/local/bin/kisskitoad
+
+help:
+  label: '  \033[36mkisski\033[0m     - OpenCode with KISSKI'

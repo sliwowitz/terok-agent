@@ -67,3 +67,22 @@ auth:
   post_capture_state:               # JSON state merged into auth mount after capture
     .claude.json:
       hasCompletedOnboarding: true
+
+install:
+  # /etc/claude-code is the managed-config directory for per-task permission
+  # mode; init-ssh-and-repo.sh writes here when TEROK_UNRESTRICTED=1.
+  run_as_root: |
+    RUN set -eux; \
+        cp /tmp/terok-scripts/terok-claude-acp /usr/local/bin/terok-claude-acp; \
+        chmod +x /usr/local/bin/terok-claude-acp; \
+        mkdir -p /etc/claude-code && chown dev:dev /etc/claude-code
+  # The claude-agent-acp npm package backs the terok-claude-acp wrapper
+  # (needed for ACP clients like Toad to drive Claude).
+  run_as_dev: |
+    RUN set -eux; \
+        npm install -g @agentclientprotocol/claude-agent-acp; \
+        npm cache clean --force
+    RUN curl -fsSL https://claude.ai/install.sh | bash
+
+help:
+  label: '  \033[36mclaude\033[0m     - Claude Code CLI'

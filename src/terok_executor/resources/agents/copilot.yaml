@@ -22,3 +22,16 @@ session:
 
 capabilities:
   log_format: plain
+
+install:
+  run_as_root: |
+    RUN set -eux; \
+        cp /tmp/terok-scripts/terok-copilot-acp /usr/local/bin/terok-copilot-acp; \
+        chmod +x /usr/local/bin/terok-copilot-acp
+  run_as_dev: |
+    RUN set -eux; \
+        npm install -g @github/copilot; \
+        npm cache clean --force
+
+help:
+  label: '  \033[36mcopilot\033[0m    - GitHub Copilot CLI'

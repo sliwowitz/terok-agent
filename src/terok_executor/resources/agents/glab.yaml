@@ -20,3 +20,22 @@ auth:
   container_mount: /home/dev/.config/glab-cli
   modes: [api_key]
   api_key_hint: "Create a personal access token at: https://gitlab.com/-/user_settings/personal_access_tokens"
+
+install:
+  run_as_root: |
+    RUN set -eux; \
+        GLAB_VERSION=$(curl -sSL "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest" \
+          | jq -r '.tag_name | ltrimstr("v")'); \
+        ARCH=$(dpkg --print-architecture); \
+        DEB_NAME="glab_${GLAB_VERSION}_linux_${ARCH}.deb"; \
+        curl -sSL -o /tmp/glab.deb \
+          "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${DEB_NAME}"; \
+        curl -sSL -o /tmp/checksums.txt \
+          "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/checksums.txt"; \
+        grep "  ${DEB_NAME}$" /tmp/checksums.txt | sed "s|${DEB_NAME}|/tmp/glab.deb|" | sha256sum -c -; \
+        dpkg -i /tmp/glab.deb; \
+        rm -f /tmp/glab.deb /tmp/checksums.txt
+
+help:
+  label: '  \033[36mglab\033[0m       - GitLab CLI'
+  section: dev_tool

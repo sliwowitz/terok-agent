@@ -47,3 +47,18 @@ auth:
   container_mount: /home/dev/.vibe
   modes: [api_key]
   api_key_hint: "Get your API key at: https://console.mistral.ai/api-keys"
+
+install:
+  run_as_root: |
+    RUN set -eux; \
+        cp /tmp/terok-scripts/terok-vibe-acp /usr/local/bin/terok-vibe-acp; \
+        cp /tmp/terok-scripts/vibe-model-sync.sh /usr/local/bin/vibe-model-sync; \
+        cp /tmp/terok-scripts/mistral-model-sync.py /usr/local/bin/mistral-model-sync.py; \
+        chmod +x /usr/local/bin/terok-vibe-acp \
+                 /usr/local/bin/vibe-model-sync \
+                 /usr/local/bin/mistral-model-sync.py; \
+        pipx install mistral-vibe; \
+        pipx inject mistral-vibe mistralai
+
+help:
+  label: '  \033[36mvibe\033[0m       - Mistral Vibe CLI'

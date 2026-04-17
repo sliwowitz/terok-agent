@@ -112,6 +112,44 @@ class CredentialProxyRoute:
 
 
 @dataclass(frozen=True)
+class InstallSpec:
+    """Roster-driven install snippets emitted into the L1 Dockerfile.
+
+    The build template loops over the resolved selection and concatenates
+    ``run_as_root`` snippets in the root section, ``run_as_dev`` snippets
+    in the dev-user section.  Both fields are raw Dockerfile fragments
+    (``RUN``, ``COPY`` — anything valid at top level after ``USER ...``).
+    ``depends_on`` lists other roster names that must be installed
+    alongside this one (transitively resolved at selection time).
+    """
+
+    depends_on: tuple[str, ...] = ()
+    """Other roster entries this install requires (e.g. ``blablador → opencode``)."""
+
+    run_as_root: str = ""
+    """Dockerfile fragment emitted in the root section of the L1 image."""
+
+    run_as_dev: str = ""
+    """Dockerfile fragment emitted in the dev-user section of the L1 image."""
+
+
+@dataclass(frozen=True)
+class HelpSpec:
+    """One-line entry shown by the in-container ``hilfe`` help banner.
+
+    Build emits a pre-rendered fragment per section (``agent`` or
+    ``dev_tool``) into ``/usr/local/share/terok/help.d/``; ``hilfe``
+    just ``cat``s them — no per-script template logic.
+    """
+
+    label: str = ""
+    """Raw banner line (the agent owns its formatting, including ANSI codes)."""
+
+    section: str = "agent"
+    """Banner section: ``"agent"`` (default) or ``"dev_tool"``."""
+
+
+@dataclass(frozen=True)
 class SidecarSpec:
     """Sidecar container configuration parsed from a ``sidecar:`` YAML section.
 
@@ -141,6 +179,8 @@ class AgentRoster:
     _auth_providers: dict[str, AuthProvider] = field(default_factory=dict)
     _proxy_routes: dict[str, CredentialProxyRoute] = field(default_factory=dict)
     _sidecar_specs: dict[str, SidecarSpec] = field(default_factory=dict)
+    _installs: dict[str, InstallSpec] = field(default_factory=dict)
+    _helps: dict[str, HelpSpec] = field(default_factory=dict)
     _mounts: tuple[MountDef, ...] = ()
     _agent_names: tuple[str, ...] = ()
     _all_names: tuple[str, ...] = ()
@@ -176,6 +216,59 @@ class AgentRoster:
     def all_names(self) -> tuple[str, ...]:
         """Names of all entries (agents + tools)."""
         return self._all_names
+
+    @property
+    def installs(self) -> dict[str, InstallSpec]:
+        """All install specs, keyed by roster name (entries without one are absent)."""
+        return dict(self._installs)
+
+    @property
+    def helps(self) -> dict[str, HelpSpec]:
+        """All help blurbs, keyed by roster name (entries without one are absent)."""
+        return dict(self._helps)
+
+    # ── Selection ──
+
+    def resolve_selection(self, names: str | tuple[str, ...]) -> tuple[str, ...]:
+        """Resolve a user-supplied selection into the full set of roster names to install.
+
+        Accepts the literal string ``"all"`` (every roster entry that has an
+        :class:`InstallSpec`) or an iterable of names.  Expands ``depends_on``
+        transitively.  Returns the names sorted alphabetically — the canonical
+        order used for the OCI label, the tag suffix, and the in-container
+        manifest.
+
+        Raises ``ValueError`` if a requested name is not in the roster.
+        """
+        if names == "all":
+            seed = set(self._installs)
+        else:
+            seed = set(names)
+
+        unknown = seed - set(self._installs)
+        if unknown:
+            avail = ", ".join(sorted(self._installs))
+            raise ValueError(f"Unknown roster entries: {sorted(unknown)!r}. Available: {avail}")
+
+        resolved: set[str] = set()
+        stack = list(seed)
+        while stack:
+            name = stack.pop()
+            if name in resolved:
+                continue
+            resolved.add(name)
+            spec = self._installs.get(name)
+            if spec is None:
+                continue
+            for dep in spec.depends_on:
+                if dep not in self._installs:
+                    raise ValueError(
+                        f"Agent {name!r} declares depends_on {dep!r}, "
+                        f"which has no install: section in the roster"
+                    )
+                if dep not in resolved:
+                    stack.append(dep)
+        return tuple(sorted(resolved))
 
     @property
     def mounts(self) -> tuple[MountDef, ...]:
@@ -300,6 +393,8 @@ def load_roster() -> AgentRoster:
     auth_providers: dict[str, AuthProvider] = {}
     proxy_routes: dict[str, CredentialProxyRoute] = {}
     sidecar_specs: dict[str, SidecarSpec] = {}
+    installs: dict[str, InstallSpec] = {}
+    helps: dict[str, HelpSpec] = {}
     agent_names: list[str] = []
     all_names: list[str] = []
 
@@ -359,11 +454,21 @@ def load_roster() -> AgentRoster:
         if sidecar is not None:
             sidecar_specs[name] = sidecar
 
+        # Install snippets and help blurb (both optional)
+        install = _to_install_spec(name, data)
+        if install is not None:
+            installs[name] = install
+        help_spec = _to_help_spec(name, data)
+        if help_spec is not None:
+            helps[name] = help_spec
+
     return AgentRoster(
         _providers=providers,
         _auth_providers=auth_providers,
         _proxy_routes=proxy_routes,
         _sidecar_specs=sidecar_specs,
+        _installs=installs,
+        _helps=helps,
         _mounts=tuple(seen_mounts.values()),
         _agent_names=tuple(agent_names),
         _all_names=tuple(all_names),
@@ -662,4 +767,39 @@ def _to_sidecar_spec(name: str, data: dict) -> SidecarSpec | None:
     return SidecarSpec(
         tool_name=sc.get("tool_name", name),
         env_map=dict(sc.get("env_map", {})),
+    )
+
+
+def _to_install_spec(name: str, data: dict) -> InstallSpec | None:
+    """Parse the optional ``install:`` YAML section into an :class:`InstallSpec`.
+
+    Both snippet fields and ``depends_on`` are optional individually; the
+    section as a whole is omitted only for entries that need no install
+    work in L1 (typically sidecar tools and runtime kinds with no payload).
+    """
+    inst = data.get("install")
+    if not inst:
+        return None
+    if not isinstance(inst, dict):
+        raise ValueError(f"Agent {name!r}: install must be a mapping, got {type(inst).__name__}")
+    deps = inst.get("depends_on", ())
+    if isinstance(deps, str):
+        deps = (deps,)
+    return InstallSpec(
+        depends_on=tuple(deps),
+        run_as_root=inst.get("run_as_root", "") or "",
+        run_as_dev=inst.get("run_as_dev", "") or "",
+    )
+
+
+def _to_help_spec(name: str, data: dict) -> HelpSpec | None:
+    """Parse the optional ``help:`` YAML section into a :class:`HelpSpec`."""
+    h = data.get("help")
+    if not h:
+        return None
+    if not isinstance(h, dict):
+        raise ValueError(f"Agent {name!r}: help must be a mapping, got {type(h).__name__}")
+    return HelpSpec(
+        label=h.get("label", "") or "",
+        section=h.get("section", "agent") or "agent",
     )

@@ -248,6 +248,7 @@ def _handle_build(
     *,
     base: str = "ubuntu:24.04",
     family: str | None = None,
+    agents: str = "all",
     rebuild: bool = False,
     full_rebuild: bool = False,
     sidecar: bool = False,
@@ -255,8 +256,14 @@ def _handle_build(
     """Build L0+L1 container images (optionally include sidecar L1)."""
     from .container.build import BuildError, build_base_images, build_sidecar_image
 
+    selection: str | tuple[str, ...] = "all"
+    if agents != "all":
+        selection = tuple(name.strip() for name in agents.split(",") if name.strip())
+
     try:
-        images = build_base_images(base, family=family, rebuild=rebuild, full_rebuild=full_rebuild)
+        images = build_base_images(
+            base, family=family, agents=selection, rebuild=rebuild, full_rebuild=full_rebuild
+        )
     except BuildError as e:
         raise SystemExit(str(e)) from e
     print(f"\nL0: {images.l0}")
@@ -443,6 +450,11 @@ BUILD_COMMAND = CommandDef(
             name="--family",
             default=None,
             help="Override package family for unknown base images (deb or rpm)",
+        ),
+        ArgDef(
+            name="--agents",
+            default="all",
+            help='Comma-separated roster entries to install, or "all" (default).',
         ),
         ArgDef(name="--rebuild", action="store_true", help="Force rebuild (cache bust)"),
         ArgDef(name="--full-rebuild", action="store_true", help="Force --no-cache --pull=always"),

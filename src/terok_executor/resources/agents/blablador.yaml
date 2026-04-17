@@ -47,3 +47,16 @@ opencode:
 
 # OpenCode runtime mounts are defined in opencode.yaml and deduplicated
 # by the registry — no need to repeat them here.
+
+install:
+  # All blablador wrappers are symlinks to the opencode-provider family;
+  # selecting blablador transitively pulls opencode in.
+  depends_on: [opencode]
+  run_as_root: |
+    RUN set -eux; \
+        ln -sf opencode-provider     /usr/local/bin/blablador; \
+        ln -sf opencode-provider-acp /usr/local/bin/blablador-acp; \
+        ln -sf opencode-toad         /usr/local/bin/blablatoad
+
+help:
+  label: '  \033[36mblablador\033[0m  - OpenCode with Helmholtz Blablador'

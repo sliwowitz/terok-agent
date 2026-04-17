@@ -41,3 +41,23 @@ mounts:
   - host_dir: _opencode-state
     container_path: /home/dev/.local/state
     label: OpenCode state
+
+install:
+  # opencode-provider/-acp/-toad are wrappers used by both OpenCode itself
+  # and by every kind:opencode agent (blablador, kisski) via symlinks.
+  run_as_root: |
+    RUN set -eux; \
+        cp /tmp/terok-scripts/opencode-provider /usr/local/bin/opencode-provider; \
+        cp /tmp/terok-scripts/opencode-provider-acp /usr/local/bin/opencode-provider-acp; \
+        cp /tmp/terok-scripts/opencode-toad /usr/local/bin/opencode-toad; \
+        cp /tmp/terok-scripts/terok-opencode-acp /usr/local/bin/terok-opencode-acp; \
+        cp /tmp/terok-scripts/opencode-session-plugin.mjs /usr/local/share/terok/; \
+        chmod +x /usr/local/bin/opencode-provider \
+                 /usr/local/bin/opencode-provider-acp \
+                 /usr/local/bin/opencode-toad \
+                 /usr/local/bin/terok-opencode-acp
+  run_as_dev: |
+    RUN curl -fsSL https://opencode.ai/install | bash
+
+help:
+  label: '  \033[36mopencode\033[0m   - OpenCode CLI (\033[2mterok config import-opencode\033[0m)'

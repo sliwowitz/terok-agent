@@ -28,24 +28,20 @@ _terok_permission_mode() {
     fi
 }
 
-_terok_executors() {
-    printf '\n\033[1mAvailable AI agents:\033[0m\n'
-    printf '  \033[36mcodex\033[0m      - OpenAI Codex CLI\n'
-    printf '  \033[36mclaude\033[0m     - Claude Code CLI\n'
-    printf '  \033[36mcopilot\033[0m    - GitHub Copilot CLI\n'
-    printf '  \033[36mvibe\033[0m       - Mistral Vibe CLI\n'
-    printf '  \033[36mblablador\033[0m  - OpenCode with Helmholtz Blablador\n'
-    printf '  \033[36mkisski\033[0m     - OpenCode with KISSKI\n'
-    printf '  \033[36mopencode\033[0m   - OpenCode CLI (\033[2mterok config import-opencode\033[0m)\n'
-    printf '  \033[36mblablatoad\033[0m - Blablador via Toad ACP\n'
-    printf '  \033[36mkisskitoad\033[0m  - KISSKI via Toad ACP\n'
-    printf '  \033[36mtoad\033[0m       - Multi-agent TUI (ACP)\n'
+_terok_help_dir=/usr/local/share/terok/help.d
+
+# Each section's contents are pre-rendered at L1 build time from the
+# roster YAML's `help:` blurbs (see terok_executor/container/build.py
+# stage_help_fragments).  Empty sections produce no file → silently skipped.
+_terok_section() {
+    local title="$1" file="$2"
+    [ -s "${_terok_help_dir}/${file}" ] || return 0
+    printf '\n\033[1m%s\033[0m\n' "$title"
+    cat "${_terok_help_dir}/${file}"
 }
 
-_terok_dev_tools() {
-    printf '\n\033[1mDev tools:\033[0m\n'
-    printf '  \033[36msonar-scanner\033[0m - SonarQube/SonarCloud static analysis (needs SONAR_TOKEN)\n'
-}
+_terok_executors() { _terok_section 'Available AI agents:' agents.txt; }
+_terok_dev_tools() { _terok_section 'Dev tools:'           dev-tools.txt; }
 
 _terok_notes() {
     printf '\n\033[1mterok container notes:\033[0m\n'
@@ -55,7 +51,7 @@ _terok_notes() {
     printf '  - agent CLI commands above are terok wrappers with git/session defaults\n'
     printf '  - \033[36msudo update-all-the-things\033[0m updates system packages and agent installs\n'
     printf '    in this running container only\n'
-    printf '  - host/TUI: \033[36mRebuild from L1 with fresh agents\033[0m / \033[36mterok build --agents <project>\033[0m\n'
+    printf '  - host/TUI: \033[36mRebuild from L1 with fresh agents\033[0m / \033[36mterok build --refresh-agents <project>\033[0m\n'
     printf '    refreshes agent installs for new containers only\n'
     printf '  - host/TUI: \033[36mRebuild from L0 (no cache)\033[0m / \033[36mterok build --full-rebuild <project>\033[0m\n'
     printf '    refreshes the base image + apt packages for new containers only\n'

@@ -26,6 +26,7 @@ from terok_executor.container.build import (
     render_l0,
     render_l1,
     render_l1_sidecar,
+    stage_help_fragments,
     stage_scripts,
     stage_tmux_config,
     stage_toad_agents,
@@ -62,6 +63,22 @@ class TestImageNaming:
 
     def test_l1_tag(self) -> None:
         assert l1_image_tag("ubuntu:24.04") == "terok-l1-cli:ubuntu-24.04"
+
+    def test_l1_tag_with_agents(self) -> None:
+        assert (
+            l1_image_tag("ubuntu:24.04", ("claude", "codex"))
+            == "terok-l1-cli:ubuntu-24.04+claude+codex"
+        )
+
+    def test_l1_tag_agents_sorted(self) -> None:
+        # Suffix is canonicalised regardless of input order.
+        assert l1_image_tag("ubuntu:24.04", ("codex", "claude")) == l1_image_tag(
+            "ubuntu:24.04", ("claude", "codex")
+        )
+
+    def test_l1_tag_empty_selection(self) -> None:
+        # Edge case: empty selection still produces a distinct, addressable tag.
+        assert l1_image_tag("ubuntu:24.04", ()) == "terok-l1-cli:ubuntu-24.04+empty"
 
     def test_image_set(self) -> None:
         s = ImageSet(l0="terok-l0:test", l1="terok-l1-cli:test")
@@ -323,6 +340,26 @@ class TestTemplateRendering:
         content = render_l1("terok-l0:nvidia-cuda-12.4", family="deb")
         assert "FROM" in content
 
+    def test_l1_label_lists_selection(self) -> None:
+        content = render_l1("terok-l0:test", agents=("claude", "codex"))
+        assert 'LABEL ai.terok.agents="claude,codex"' in content
+
+    def test_l1_omits_unselected_agents(self) -> None:
+        # Selecting only claude should not pull in vibe's pipx install.
+        content = render_l1("terok-l0:test", agents=("claude",))
+        assert "claude.ai/install" in content
+        assert "pipx install mistral-vibe" not in content
+
+    def test_l1_resolves_transitive_deps(self) -> None:
+        # blablador depends_on opencode → opencode install must appear.
+        content = render_l1("terok-l0:test", agents=("blablador",))
+        assert "opencode.ai/install" in content
+        assert 'LABEL ai.terok.agents="blablador,opencode"' in content
+
+    def test_l1_unknown_agent_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown roster entries"):
+            render_l1("terok-l0:test", agents=("not-a-real-agent",))
+
     def test_l1_sidecar_is_valid_dockerfile(self) -> None:
         content = render_l1_sidecar("terok-l0:test", family="deb")
         assert content.startswith("# syntax=docker")
@@ -477,6 +514,32 @@ class TestStageTmuxConfig:
         dest = tmp_path / "tmux"
         stage_tmux_config(dest)
         assert not (dest / "__init__.py").exists()
+
+
+class TestStageHelpFragments:
+    """Verify per-section help fragment rendering for ``hilfe``."""
+
+    def test_splits_by_section(self, tmp_path: Path) -> None:
+        dest = tmp_path / "help.d"
+        stage_help_fragments(dest, ("claude", "gh"))
+        assert (dest / "agents.txt").is_file()
+        assert (dest / "dev-tools.txt").is_file()
+        assert "claude" in (dest / "agents.txt").read_text()
+        assert "gh" in (dest / "dev-tools.txt").read_text()
+
+    def test_decodes_ansi_escapes(self, tmp_path: Path) -> None:
+        dest = tmp_path / "help.d"
+        stage_help_fragments(dest, ("claude",))
+        # \033 in the YAML must land as the literal ESC byte in the file so
+        # that hilfe just `cat`s and gets coloured output.
+        assert "\x1b[" in (dest / "agents.txt").read_text()
+        assert r"\033[" not in (dest / "agents.txt").read_text()
+
+    def test_omits_empty_sections(self, tmp_path: Path) -> None:
+        # Selecting only an agent (no dev_tool) leaves dev-tools.txt absent.
+        dest = tmp_path / "help.d"
+        stage_help_fragments(dest, ("claude",))
+        assert not (dest / "dev-tools.txt").exists()
 
 
 # ---------------------------------------------------------------------------

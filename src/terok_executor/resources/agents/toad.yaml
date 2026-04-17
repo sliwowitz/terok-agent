@@ -11,3 +11,20 @@ mounts:
   - host_dir: _toad-config
     container_path: /home/dev/.config/toad
     label: Toad config
+
+install:
+  # Toad needs Python ≥3.14; uv installs a standalone interpreter so the
+  # system Python stays untouched.  The uv-created symlink is removed so
+  # the wrapper at /usr/local/bin/toad takes precedence in PATH.
+  # toad-agents/ ships the bundled ACP launcher TOMLs.
+  run_as_root: |
+    COPY toad-agents/ /usr/local/share/terok/toad-agents/
+    RUN set -eux; \
+        cp /tmp/terok-scripts/toad /usr/local/bin/toad; \
+        chmod +x /usr/local/bin/toad
+  run_as_dev: |
+    RUN uv tool install batrachian-toad --python 3.14 \
+     && rm -f ~/.local/bin/toad
+
+help:
+  label: '  \033[36mtoad\033[0m       - Multi-agent TUI (ACP)'

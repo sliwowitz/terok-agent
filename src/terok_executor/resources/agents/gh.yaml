@@ -27,3 +27,16 @@ auth:
     You will be guided through GitHub authentication.
     Recommended: choose 'Login with a web browser' or paste a token.
   api_key_hint: "Paste a GitHub personal access token (https://github.com/settings/tokens)"
+
+install:
+  # The gh apt source is pre-registered in the L1 prelude alongside NodeSource.
+  # Here we only refresh the index and install the package.
+  run_as_root: |
+    RUN set -eux; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends gh; \
+        rm -rf /var/lib/apt/lists/*
+
+help:
+  label: '  \033[36mgh\033[0m         - GitHub CLI'
+  section: dev_tool
