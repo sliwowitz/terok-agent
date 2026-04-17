@@ -22,25 +22,31 @@ auth:
   api_key_hint: "Create a personal access token at: https://gitlab.com/-/user_settings/personal_access_tokens"
 
 install:
-  # pipefail is needed because the checksum verification is a pipeline
-  # (grep | sed | sha256sum -c -); without it, an empty grep result would
-  # silently feed sha256sum nothing and exit 0, skipping verification.
+  # Arch detection uses `uname -m` so the snippet works on both deb and
+  # rpm hosts.  pipefail makes the checksum verification (grep | sed |
+  # sha256sum -c -) hard-fail rather than silently accept an empty grep.
   run_as_root: |
+    {% set pkg_ext = "deb" if family == "deb" else "rpm" %}
+    {% set pkg_install = "dpkg -i" if family == "deb" else "dnf install -y" %}
     RUN set -eux -o pipefail; \
         GLAB_VERSION=$(curl --fail -sSL "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest" \
           | jq -r '.tag_name | ltrimstr("v")'); \
-        ARCH=$(dpkg --print-architecture); \
-        DEB_NAME="glab_${GLAB_VERSION}_linux_${ARCH}.deb"; \
-        curl --fail -sSL -o /tmp/glab.deb \
-          "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${DEB_NAME}"; \
+        case "$(uname -m)" in \
+          x86_64) ARCH=amd64 ;; \
+          aarch64) ARCH=arm64 ;; \
+          *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+        esac; \
+        PKG_NAME="glab_${GLAB_VERSION}_linux_${ARCH}.{{ pkg_ext }}"; \
+        curl --fail -sSL -o /tmp/glab.pkg \
+          "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${PKG_NAME}"; \
         curl --fail -sSL -o /tmp/checksums.txt \
           "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/checksums.txt"; \
-        grep -q "  ${DEB_NAME}$" /tmp/checksums.txt \
-          || { echo "no checksum entry for ${DEB_NAME}" >&2; exit 1; }; \
-        grep "  ${DEB_NAME}$" /tmp/checksums.txt \
-          | sed "s|${DEB_NAME}|/tmp/glab.deb|" | sha256sum -c -; \
-        dpkg -i /tmp/glab.deb; \
-        rm -f /tmp/glab.deb /tmp/checksums.txt
+        grep -q "  ${PKG_NAME}$" /tmp/checksums.txt \
+          || { echo "no checksum entry for ${PKG_NAME}" >&2; exit 1; }; \
+        grep "  ${PKG_NAME}$" /tmp/checksums.txt \
+          | sed "s|${PKG_NAME}|/tmp/glab.pkg|" | sha256sum -c -; \
+        {{ pkg_install }} /tmp/glab.pkg; \
+        rm -f /tmp/glab.pkg /tmp/checksums.txt
 
 help:
   label: '  \033[36mglab\033[0m       - GitLab CLI'

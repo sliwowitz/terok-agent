@@ -341,24 +341,24 @@ class TestTemplateRendering:
         assert "FROM" in content
 
     def test_l1_label_lists_selection(self) -> None:
-        content = render_l1("terok-l0:test", agents=("claude", "codex"))
+        content = render_l1("terok-l0:test", family="deb", agents=("claude", "codex"))
         assert 'LABEL ai.terok.agents="claude,codex"' in content
 
     def test_l1_omits_unselected_agents(self) -> None:
         # Selecting only claude should not pull in vibe's pipx install.
-        content = render_l1("terok-l0:test", agents=("claude",))
+        content = render_l1("terok-l0:test", family="deb", agents=("claude",))
         assert "claude.ai/install" in content
         assert "pipx install mistral-vibe" not in content
 
     def test_l1_resolves_transitive_deps(self) -> None:
         # blablador depends_on opencode → opencode install must appear.
-        content = render_l1("terok-l0:test", agents=("blablador",))
+        content = render_l1("terok-l0:test", family="deb", agents=("blablador",))
         assert "opencode.ai/install" in content
         assert 'LABEL ai.terok.agents="blablador,opencode"' in content
 
     def test_l1_unknown_agent_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown roster entries"):
-            render_l1("terok-l0:test", agents=("not-a-real-agent",))
+            render_l1("terok-l0:test", family="deb", agents=("not-a-real-agent",))
 
     def test_l1_sidecar_is_valid_dockerfile(self) -> None:
         content = render_l1_sidecar("terok-l0:test", family="deb")
@@ -546,9 +546,7 @@ class TestStageHelpFragments:
         from terok_executor.container.build import _decode_label_escapes
 
         # bytes(s, "utf-8").decode("unicode_escape") would produce 'Ã¤' here.
-        assert _decode_label_escapes(r"\033[36m→ ähnlich\033[0m") == (
-            "\x1b[36m→ ähnlich\x1b[0m"
-        )
+        assert _decode_label_escapes(r"\033[36m→ ähnlich\033[0m") == ("\x1b[36m→ ähnlich\x1b[0m")
 
 
 # ---------------------------------------------------------------------------
@@ -873,7 +871,8 @@ class TestBuildBaseImagesFamily:
             result = build_base_images("rockylinux:9")
 
         assert result.l0.endswith(":rockylinux-9")
-        assert result.l1.endswith(":rockylinux-9")
+        # L1 tag carries the default agent-suffix on top of the base fragment.
+        assert result.l1.startswith("terok-l1-cli:rockylinux-9+")
         mock_detect.assert_not_called()
 
 

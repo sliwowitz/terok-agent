@@ -29,13 +29,27 @@ auth:
   api_key_hint: "Paste a GitHub personal access token (https://github.com/settings/tokens)"
 
 install:
-  # The gh apt source is pre-registered in the L1 prelude alongside NodeSource.
-  # Here we only refresh the index and install the package.
+  # Register the official GitHub package source, then install gh.  Both
+  # branches land the same binary in $PATH; the template picks which one
+  # runs based on the resolved family.
   run_as_root: |
+    {% if family == "deb" %}
     RUN set -eux; \
+        mkdir -p /etc/apt/keyrings; \
+        curl -sSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+          "https://cli.github.com/packages/githubcli-archive-keyring.gpg"; \
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+          > /etc/apt/sources.list.d/github-cli.list; \
         apt-get update; \
         apt-get install -y --no-install-recommends gh; \
         rm -rf /var/lib/apt/lists/*
+    {% else %}
+    RUN set -eux; \
+        curl -fsSL -o /etc/yum.repos.d/gh-cli.repo \
+          "https://cli.github.com/packages/rpm/gh-cli.repo"; \
+        dnf install -y gh; \
+        dnf clean all
+    {% endif %}
 
 help:
   label: '  \033[36mgh\033[0m         - GitHub CLI'

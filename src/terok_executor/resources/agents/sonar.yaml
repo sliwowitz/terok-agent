@@ -27,11 +27,10 @@ install:
   run_as_root: |
     RUN set -eux; \
         SONAR_VERSION="8.0.1.6346"; \
-        ARCH=$(dpkg --print-architecture); \
-        case "$ARCH" in \
-          amd64) SA="linux-x64" ;; \
-          arm64) SA="linux-aarch64" ;; \
-          *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+        case "$(uname -m)" in \
+          x86_64) SA="linux-x64" ;; \
+          aarch64) SA="linux-aarch64" ;; \
+          *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;; \
         esac; \
         SONAR_ZIP="sonar-scanner-cli-${SONAR_VERSION}-${SA}.zip"; \
         MAVEN_BASE="https://repo1.maven.org/maven2/org/sonarsource/scanner/cli/sonar-scanner-cli/${SONAR_VERSION}"; \

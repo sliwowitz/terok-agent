@@ -440,7 +440,9 @@ def render_l1(
     installs = roster.installs
 
     root_snippets = [
-        _render_snippet(installs[n].run_as_root, family) for n in selected if installs[n].run_as_root
+        _render_snippet(installs[n].run_as_root, family)
+        for n in selected
+        if installs[n].run_as_root
     ]
     dev_snippets = [
         _render_snippet(installs[n].run_as_dev, family) for n in selected if installs[n].run_as_dev
