@@ -571,14 +571,18 @@ def l1_image_tag(base_image: str, agents: tuple[str, ...] | None = None) -> str:
     When *agents* is ``None``, returns the unsuffixed alias
     (e.g. ``terok-l1-cli:ubuntu-24.04``) — the moving handle that always
     points at the most recent build.  When *agents* is a tuple of names,
-    appends a sorted ``+a+b+c`` suffix so multiple selections can coexist
-    in the local image store and stay individually addressable.
+    appends a sorted ``-a-b-c`` suffix (``-`` is the only spec-valid
+    separator that ``_base_tag`` already uses) so multiple selections
+    coexist in the local image store and stay individually addressable.
+    Agent name fragments are passed through the same ``_base_tag``
+    sanitiser to keep the final tag within the OCI tag charset
+    (``[A-Za-z0-9_.-]``).
     """
     base = f"terok-l1-cli:{_base_tag(base_image)}"
     if agents is None:
         return base
-    suffix = "+".join(sorted(agents)) if agents else "empty"
-    return f"{base}+{suffix}"
+    suffix = "-".join(_base_tag(a) for a in sorted(agents)) if agents else "empty"
+    return f"{base}-{suffix}"
 
 
 def l1_sidecar_image_tag(base_image: str) -> str:

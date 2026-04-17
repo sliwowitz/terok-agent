@@ -231,14 +231,20 @@ class AgentRoster:
         """Resolve a user-supplied selection into the full set of roster names to install.
 
         Accepts the literal string ``"all"`` (every roster entry that has an
-        :class:`InstallSpec`) or an iterable of names.  Expands ``depends_on``
+        :class:`InstallSpec`) or a tuple of names.  Expands ``depends_on``
         transitively.  Returns the names sorted alphabetically — the canonical
         order used for the OCI label, the tag suffix, and the in-container
         manifest.
 
-        Raises ``ValueError`` if a requested name is not in the roster.
+        Raises ``ValueError`` if a requested name is not in the roster, or
+        ``TypeError`` if *names* is a string other than ``"all"`` (a bare
+        name like ``"claude"`` would otherwise be iterated into characters).
         """
-        if names == "all":
+        if isinstance(names, str):
+            if names != "all":
+                raise TypeError(
+                    f"Selection must be the literal string 'all' or a tuple of names, got {names!r}"
+                )
             seed = set(self._installs)
         else:
             seed = set(names)

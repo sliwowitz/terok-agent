@@ -67,7 +67,7 @@ class TestImageNaming:
     def test_l1_tag_with_agents(self) -> None:
         assert (
             l1_image_tag("ubuntu:24.04", ("claude", "codex"))
-            == "terok-l1-cli:ubuntu-24.04+claude+codex"
+            == "terok-l1-cli:ubuntu-24.04-claude-codex"
         )
 
     def test_l1_tag_agents_sorted(self) -> None:
@@ -78,7 +78,7 @@ class TestImageNaming:
 
     def test_l1_tag_empty_selection(self) -> None:
         # Edge case: empty selection still produces a distinct, addressable tag.
-        assert l1_image_tag("ubuntu:24.04", ()) == "terok-l1-cli:ubuntu-24.04+empty"
+        assert l1_image_tag("ubuntu:24.04", ()) == "terok-l1-cli:ubuntu-24.04-empty"
 
     def test_image_set(self) -> None:
         s = ImageSet(l0="terok-l0:test", l1="terok-l1-cli:test")
@@ -359,6 +359,13 @@ class TestTemplateRendering:
     def test_l1_unknown_agent_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown roster entries"):
             render_l1("terok-l0:test", family="deb", agents=("not-a-real-agent",))
+
+    def test_l1_bare_string_selection_rejected(self) -> None:
+        # A bare agent name passed as a string would otherwise be iterated
+        # into characters ({'c','l','a','u','d','e'}) — the guard catches
+        # that misuse instead of raising a confusing ValueError.
+        with pytest.raises(TypeError, match="'all' or a tuple"):
+            render_l1("terok-l0:test", family="deb", agents="claude")
 
     def test_l1_sidecar_is_valid_dockerfile(self) -> None:
         content = render_l1_sidecar("terok-l0:test", family="deb")
@@ -872,7 +879,7 @@ class TestBuildBaseImagesFamily:
 
         assert result.l0.endswith(":rockylinux-9")
         # L1 tag carries the default agent-suffix on top of the base fragment.
-        assert result.l1.startswith("terok-l1-cli:rockylinux-9+")
+        assert result.l1.startswith("terok-l1-cli:rockylinux-9-")
         mock_detect.assert_not_called()
 
 
