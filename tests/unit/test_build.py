@@ -628,16 +628,18 @@ class TestDetectFamily:
         assert detect_family(base_image) == expected
 
     @pytest.mark.parametrize(
-        "base_image",
+        ("base_image", "expected"),
         [
             # Digest-only refs — tag parsing must not consume the digest.
-            "ubuntu@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "fedora:43@sha256:0123456789abcdef",
+            (
+                "ubuntu@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "deb",
+            ),
+            ("fedora:43@sha256:0123456789abcdef", "rpm"),
         ],
     )
-    def test_digest_refs_do_not_break_detection(self, base_image: str) -> None:
-        # Just assert it doesn't raise and returns something sensible.
-        assert detect_family(base_image) in {"deb", "rpm"}
+    def test_digest_refs_do_not_break_detection(self, base_image: str, expected: str) -> None:
+        assert detect_family(base_image) == expected
 
     def test_registry_port_does_not_confuse_tag_parser(self) -> None:
         # Registry ports are preserved in the parsed name; private mirrors
