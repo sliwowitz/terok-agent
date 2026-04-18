@@ -784,7 +784,7 @@ class TestRenderFamilyAware:
         assert "deb.nodesource.com/setup_22.x" in content
         assert "/etc/apt/keyrings/githubcli" in content
         assert "glab_${GLAB_VERSION}_linux_${ARCH}.deb" in content
-        assert "dpkg -i /tmp/glab.pkg" in content
+        assert "dpkg -i /tmp/glab.deb" in content
 
     def test_l1_rpm_uses_dnf_and_rpm_repos(self) -> None:
         content = render_l1("terok-l0:test", family="rpm")
@@ -792,7 +792,9 @@ class TestRenderFamilyAware:
         assert "rpm.nodesource.com/setup_22.x" in content
         assert "/etc/yum.repos.d/gh-cli.repo" in content
         assert "glab_${GLAB_VERSION}_linux_${ARCH}.rpm" in content
-        assert "dnf install -y /tmp/glab.pkg" in content
+        # Filename must carry .rpm extension — dnf5 refuses local installs
+        # of files named anything else (treats them as repo queries).
+        assert "dnf install -y /tmp/glab.rpm" in content
         assert "apt-get" not in content
         assert "dpkg" not in content
 

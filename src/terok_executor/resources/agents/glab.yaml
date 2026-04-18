@@ -23,7 +23,11 @@ auth:
 
 install:
   # Arch detection uses `uname -m` so the snippet works on both deb and
-  # rpm hosts.  pipefail makes the checksum verification (grep | sed |
+  # rpm hosts.  The on-disk filename carries the family-specific
+  # extension (/tmp/glab.deb or /tmp/glab.rpm) because dnf5 only
+  # recognises local RPM files by their .rpm suffix — any other name
+  # is treated as a repo-package query and fails to resolve.
+  # pipefail makes the checksum verification (grep | sed |
   # sha256sum -c -) hard-fail rather than silently accept an empty grep.
   run_as_root: |
     {% set pkg_ext = "deb" if family == "deb" else "rpm" %}
@@ -37,16 +41,16 @@ install:
           *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;; \
         esac; \
         PKG_NAME="glab_${GLAB_VERSION}_linux_${ARCH}.{{ pkg_ext }}"; \
-        curl --fail -sSL -o /tmp/glab.pkg \
+        curl --fail -sSL -o /tmp/glab.{{ pkg_ext }} \
           "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/${PKG_NAME}"; \
         curl --fail -sSL -o /tmp/checksums.txt \
           "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/checksums.txt"; \
         grep -q "  ${PKG_NAME}$" /tmp/checksums.txt \
           || { echo "no checksum entry for ${PKG_NAME}" >&2; exit 1; }; \
         grep "  ${PKG_NAME}$" /tmp/checksums.txt \
-          | sed "s|${PKG_NAME}|/tmp/glab.pkg|" | sha256sum -c -; \
-        {{ pkg_install }} /tmp/glab.pkg; \
-        rm -f /tmp/glab.pkg /tmp/checksums.txt
+          | sed "s|${PKG_NAME}|/tmp/glab.{{ pkg_ext }}|" | sha256sum -c -; \
+        {{ pkg_install }} /tmp/glab.{{ pkg_ext }}; \
+        rm -f /tmp/glab.{{ pkg_ext }} /tmp/checksums.txt
 
 help:
   label: '  \033[36mglab\033[0m       - GitLab CLI'
