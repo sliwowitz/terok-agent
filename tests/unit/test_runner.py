@@ -65,10 +65,19 @@ class TestAgentRunner:
         assert "claude" in reg.agent_names
 
     def test_mismatched_sandbox_and_runtime_rejected(self) -> None:
-        """Passing a sandbox and a runtime from different backends raises."""
+        """Passing a sandbox and a runtime from different backend types raises."""
         from terok_sandbox import NullRuntime, PodmanRuntime, Sandbox
 
         rt_a = PodmanRuntime()
+        rt_b = NullRuntime()
+        with pytest.raises(ValueError, match="same backend instance"):
+            AgentRunner(sandbox=Sandbox(runtime=rt_a), runtime=rt_b)
+
+    def test_mismatched_same_type_different_instance_rejected(self) -> None:
+        """The check is identity-based — two NullRuntimes are still different backends."""
+        from terok_sandbox import NullRuntime, Sandbox
+
+        rt_a = NullRuntime()
         rt_b = NullRuntime()
         with pytest.raises(ValueError, match="same backend instance"):
             AgentRunner(sandbox=Sandbox(runtime=rt_a), runtime=rt_b)
@@ -205,7 +214,7 @@ class TestAgentRunner:
         assert "9999:8080" in spec.extra_args[idx + 1]
 
     def test_run_web_auto_allocates_port(self, tmp_path: Path) -> None:
-        """Web mode auto-allocates a port when none given."""
+        """Web mode reserves a port via ``runtime.reserve_port`` when none is given."""
         from unittest.mock import MagicMock as _Mock
 
         sandbox = _mock_sandbox()
@@ -213,8 +222,8 @@ class TestAgentRunner:
 
         reservation = _Mock()
         reservation.port = 12345
-        reservation.__enter__ = lambda self: self
-        reservation.__exit__ = lambda self, *exc: None
+        reservation.__enter__.return_value = reservation
+        reservation.__exit__.return_value = None
         runtime_mock = _Mock()
         runtime_mock.reserve_port.return_value = reservation
 
@@ -224,6 +233,7 @@ class TestAgentRunner:
         ):
             runner.run_web(str(tmp_path))  # no port= arg
 
+        runtime_mock.reserve_port.assert_called_once()
         spec = sandbox.run.call_args[0][0]
         assert "-p" in spec.extra_args
         idx = list(spec.extra_args).index("-p")
