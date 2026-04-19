@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -309,6 +310,186 @@ class TestAgentRunner:
         spec = sandbox.run.call_args[0][0]
         assert spec.env["TEROK_SHARED_DIR"] == "/data"
         assert any(v.host_path == shared and v.container_path == "/data" for v in spec.volumes)
+
+
+class TestLaunchPrepared:
+    """Verify the library-level ``launch_prepared`` task primitive.
+
+    ``launch_prepared`` is the public entry point terok uses to hand a
+    caller-assembled env and volumes to the sandbox without reimplementing
+    ``RunSpec`` construction.  Exercises the mapping from method args to
+    :class:`~terok_sandbox.RunSpec` fields.
+    """
+
+    def test_returns_container_name(self, tmp_path: Path) -> None:
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+
+        cname = runner.launch_prepared(
+            env={"TEROK_TASK": "demo"},
+            volumes=[],
+            image="terok-l1-cli:test",
+            command=["bash", "-lc", "echo hi"],
+            name="terok-demo",
+            task_dir=tmp_path,
+        )
+
+        assert cname == "terok-demo"
+        sandbox.run.assert_called_once()
+
+    def test_builds_runspec_from_args(self, tmp_path: Path) -> None:
+        """Each kwarg maps to the matching RunSpec field."""
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+
+        runner.launch_prepared(
+            env={"FOO": "bar"},
+            volumes=[],
+            image="terok-l1-cli:test",
+            command=["bash"],
+            name="terok-x",
+            task_dir=tmp_path,
+            gpu=True,
+            memory="4g",
+            cpus="2.0",
+            unrestricted=False,
+            sealed=True,
+            extra_args=["-p", "127.0.0.1:8080:8080"],
+        )
+
+        spec = sandbox.run.call_args[0][0]
+        assert spec.container_name == "terok-x"
+        assert spec.image == "terok-l1-cli:test"
+        assert spec.env == {"FOO": "bar"}
+        assert spec.command == ("bash",)
+        assert spec.task_dir == tmp_path
+        assert spec.gpu_enabled is True
+        assert spec.memory_limit == "4g"
+        assert spec.cpu_limit == "2.0"
+        assert spec.unrestricted is False
+        assert spec.sealed is True
+        assert spec.extra_args == ("-p", "127.0.0.1:8080:8080")
+
+    def test_sealed_defaults_false(self, tmp_path: Path) -> None:
+        """Sealed isolation is opt-in — the default must be shared-mode."""
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+
+        runner.launch_prepared(
+            env={},
+            volumes=[],
+            image="img",
+            command=[],
+            name="c",
+            task_dir=tmp_path,
+        )
+
+        spec = sandbox.run.call_args[0][0]
+        assert spec.sealed is False
+
+    def test_hooks_forwarded(self, tmp_path: Path) -> None:
+        """Lifecycle hooks are passed through to sandbox.run()."""
+        from terok_sandbox import LifecycleHooks
+
+        sandbox = _mock_sandbox()
+        runner = AgentRunner(sandbox=sandbox)
+        hooks = LifecycleHooks(pre_start=lambda: None)
+
+        runner.launch_prepared(
+            env={},
+            volumes=[],
+            image="img",
+            command=[],
+            name="c",
+            task_dir=tmp_path,
+            hooks=hooks,
+        )
+
+        assert sandbox.run.call_args.kwargs["hooks"] is hooks
+
+    def test_gpu_config_error_becomes_build_error(self, tmp_path: Path) -> None:
+        """GpuConfigError from sandbox.run() surfaces as BuildError — same
+        translation as the run_* entry points, so terok sees one failure type."""
+        from terok_sandbox import GpuConfigError
+
+        from terok_executor.container.build import BuildError
+
+        sandbox = _mock_sandbox()
+        sandbox.run.side_effect = GpuConfigError("no CDI")
+        runner = AgentRunner(sandbox=sandbox)
+
+        with pytest.raises(BuildError, match="no CDI"):
+            runner.launch_prepared(
+                env={},
+                volumes=[],
+                image="img",
+                command=[],
+                name="c",
+                task_dir=tmp_path,
+                gpu=True,
+            )
+
+
+class TestWaitForExit:
+    """Verify task-level wait facade."""
+
+    def test_returns_container_exit_code(self) -> None:
+        """Happy path: ``podman wait`` reports the container's exit code."""
+        runner = AgentRunner(sandbox=_mock_sandbox())
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="0\n", stderr="")
+        with patch("subprocess.run", return_value=completed) as run_mock:
+            assert runner.wait_for_exit("terok-x") == 0
+        run_mock.assert_called_once()
+        # Call shape: ["podman", "wait", "terok-x"] with timeout=None
+        args, kwargs = run_mock.call_args
+        assert args[0] == ["podman", "wait", "terok-x"]
+        assert kwargs["timeout"] is None
+
+    def test_returns_exit_code_124_distinctly(self) -> None:
+        """A container that legitimately exits 124 is returned as 124 —
+        not conflated with the wait-timeout signal."""
+        runner = AgentRunner(sandbox=_mock_sandbox())
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="124\n", stderr="")
+        with patch("subprocess.run", return_value=completed):
+            assert runner.wait_for_exit("terok-x") == 124
+
+    def test_timeout_raises(self) -> None:
+        """``subprocess.TimeoutExpired`` surfaces as :class:`TimeoutError`
+        so callers can signal the real exit code separately."""
+        runner = AgentRunner(sandbox=_mock_sandbox())
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd=["podman", "wait"], timeout=30.0),
+        ):
+            with pytest.raises(TimeoutError, match="did not exit within 30"):
+                runner.wait_for_exit("terok-x", timeout=30.0)
+
+    def test_podman_wait_failure_raises(self) -> None:
+        """Non-zero returncode from ``podman wait`` (e.g. unknown container)
+        raises ``RuntimeError`` — never impersonated as a container exit code."""
+        runner = AgentRunner(sandbox=_mock_sandbox())
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=125,
+            stdout="",
+            stderr="Error: no such container terok-x\n",
+        )
+        with patch("subprocess.run", return_value=completed):
+            with pytest.raises(
+                RuntimeError, match=r"podman wait .* failed .*returncode=125.*no such container"
+            ):
+                runner.wait_for_exit("terok-x")
+
+    def test_unexpected_output_raises(self) -> None:
+        """Non-numeric stdout raises ``RuntimeError`` with diagnostic context
+        instead of leaking an obscure ``ValueError`` from ``int(...)``."""
+        runner = AgentRunner(sandbox=_mock_sandbox())
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="not-a-number\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError, match=r"returned unexpected output.*not-a-number"):
+                runner.wait_for_exit("terok-x")
 
 
 class TestGateIntegration:

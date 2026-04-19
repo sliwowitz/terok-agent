@@ -266,6 +266,138 @@ class AgentRunner:
             branch=branch,
         )
 
+    def launch_prepared(
+        self,
+        *,
+        env: dict[str, str],
+        volumes: list[VolumeSpec],
+        image: str,
+        command: list[str],
+        name: str,
+        task_dir: Path,
+        gpu: bool = False,
+        memory: str | None = None,
+        cpus: str | None = None,
+        unrestricted: bool = True,
+        sealed: bool = False,
+        hooks: LifecycleHooks | None = None,
+        extra_args: list[str] | None = None,
+    ) -> str:
+        """Launch a container from a caller-prepared env, volumes, image, and command.
+
+        Use this when the caller has already assembled the environment and
+        volume specs — e.g. the terok orchestrator, which computes
+        project-specific env via ``build_task_env_and_volumes`` and owns
+        the container naming policy.  For end-to-end runs from a repo and
+        prompt (CLI-style), use :meth:`run_headless`, :meth:`run_interactive`,
+        or :meth:`run_web` instead.
+
+        In sealed isolation mode (*sealed=True*), the sandbox splits the
+        launch into ``create`` → ``copy_to`` → ``start`` instead of a
+        single ``run`` — no host↔container bind mounts remain after startup.
+
+        Args:
+            env: Environment variables injected into the container.
+            volumes: Host↔container directory specs (sandbox decides mount vs inject).
+            image: Image tag to run.
+            command: Command + args to execute as PID 1.
+            name: Container name (must be unique on the host).
+            task_dir: Per-task directory used for per-container shield state.
+            gpu: Pass GPU device args when True.
+            memory: Podman ``--memory`` value (``"4g"`` etc.); ``None`` = unlimited.
+            cpus: Podman ``--cpus`` value (``"2.0"`` etc.); ``None`` = unlimited.
+            unrestricted: When False, adds ``--security-opt no-new-privileges``.
+            sealed: Enable sealed isolation (no bind mounts).
+            hooks: Optional lifecycle callbacks fired around the launch.
+            extra_args: Additional raw ``podman run`` flags (e.g. port publishing).
+
+        Returns:
+            The container name (same as *name*).
+
+        Raises:
+            BuildError: When GPU was requested but the host has no functioning
+                NVIDIA CDI.
+        """
+        from terok_sandbox import GpuConfigError, RunSpec
+
+        spec = RunSpec(
+            container_name=name,
+            image=image,
+            env=env,
+            volumes=tuple(volumes),
+            command=tuple(command),
+            task_dir=task_dir,
+            gpu_enabled=gpu,
+            memory_limit=memory,
+            cpu_limit=cpus,
+            extra_args=tuple(extra_args or ()),
+            unrestricted=unrestricted,
+            sealed=sealed,
+        )
+
+        try:
+            self.sandbox.run(spec, hooks=hooks)
+        except GpuConfigError as exc:
+            raise BuildError(str(exc)) from exc
+
+        return name
+
+    def wait_for_exit(
+        self,
+        container_name: str,
+        timeout: float | None = None,
+    ) -> int:
+        """Block until *container_name* exits; return its exit code.
+
+        Raises :class:`TimeoutError` when *timeout* elapses before the
+        container exits — signalled out of band so a container that
+        legitimately exits with code 124 (the ``timeout(1)`` convention)
+        is returned unambiguously as its real exit code, not conflated
+        with the wait timing out.
+
+        Raises :class:`RuntimeError` when ``podman wait`` itself fails
+        (non-zero returncode, e.g. unknown container) or returns output
+        that is not a container exit code — the podman error is never
+        impersonated as the container's exit code, which would let a
+        "no such container" diagnostic leak out as exit code 125.
+
+        Raises :class:`FileNotFoundError` when ``podman`` is not on PATH.
+        Intentionally re-implements the wait loop instead of delegating
+        to :meth:`Sandbox.wait_for_exit`, which swallows
+        :class:`subprocess.TimeoutExpired` and returns the 124 sentinel
+        — fine for fire-and-forget generic waits, lossy for task-level
+        callers that need to record the real exit code.
+        """
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["podman", "wait", container_name],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(
+                f"container {container_name!r} did not exit within {timeout}s"
+            ) from exc
+
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip() or "<no output>"
+            raise RuntimeError(
+                f"podman wait {container_name!r} failed (returncode={proc.returncode}): {detail}"
+            )
+
+        stdout = (proc.stdout or "").strip()
+        try:
+            return int(stdout)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"podman wait {container_name!r} returned unexpected output: "
+                f"stdout={proc.stdout!r}, stderr={proc.stderr!r}"
+            ) from exc
+
     # ------------------------------------------------------------------
     # Internal orchestrator (all public entry points delegate here)
     # ------------------------------------------------------------------
@@ -434,19 +566,18 @@ class AgentRunner:
             raise ValueError(f"Unknown mode: {mode}")
 
         # Launch
-        cname = self._launch(
-            image=image_tag,
-            task_id=task_id,
+        cname = self.launch_prepared(
             env=env,
             volumes=volumes,
+            image=image_tag,
             command=command,
+            name=name or f"terok-executor-{task_id}",
             task_dir=task_dir,
-            name=name,
-            extra_args=extra_args or None,
-            unrestricted=unrestricted,
             gpu=gpu,
             memory=memory,
             cpus=cpus,
+            unrestricted=unrestricted,
+            extra_args=extra_args or None,
             hooks=hooks,
         )
 
@@ -597,55 +728,6 @@ class AgentRunner:
             mounts_base=mounts_base,
         )
         return prepare_agent_config_dir(spec)
-
-    def _launch(
-        self,
-        *,
-        image: str,
-        task_id: str,
-        env: dict[str, str],
-        volumes: list[VolumeSpec],
-        command: list[str],
-        task_dir: Path,
-        name: str | None = None,
-        extra_args: list[str] | None = None,
-        unrestricted: bool = True,
-        gpu: bool = False,
-        memory: str | None = None,
-        cpus: str | None = None,
-        hooks: LifecycleHooks | None = None,
-    ) -> str:
-        """Delegate container launch to :meth:`Sandbox.run`. Returns container name.
-
-        Builds a :class:`~terok_sandbox.RunSpec` from the parameters and
-        passes it to the sandbox executor.  All podman command assembly,
-        shield integration, GPU args, and error handling live in
-        :mod:`terok_sandbox` — this method is a thin mapping layer.
-        """
-        from terok_sandbox import GpuConfigError, RunSpec
-
-        cname = name or f"terok-executor-{task_id}"
-
-        spec = RunSpec(
-            container_name=cname,
-            image=image,
-            env=env,
-            volumes=tuple(volumes),
-            command=tuple(command),
-            task_dir=task_dir,
-            gpu_enabled=gpu,
-            memory_limit=memory,
-            cpu_limit=cpus,
-            extra_args=tuple(extra_args or ()),
-            unrestricted=unrestricted,
-        )
-
-        try:
-            self.sandbox.run(spec, hooks=hooks)
-        except GpuConfigError as exc:
-            raise BuildError(str(exc)) from exc
-
-        return cname
 
     @staticmethod
     def _stream_headless(cname: str, timeout: float) -> None:
