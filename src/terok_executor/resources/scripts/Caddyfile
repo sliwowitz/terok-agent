@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Jiri Vyskocil
+# SPDX-License-Identifier: Apache-2.0
+
+# Token-gated HTTP ingress for containerized web UIs (toad, Vibes, ...).
+# The token is injected at ``caddy run`` time via the TOAD_TOKEN env var;
+# the upstream is selected via TOAD_UPSTREAM (host:port form).
+{
+	auto_https off
+	admin off
+}
+
+:8080 {
+	@authed header_regexp Cookie `(?:^|;\s*)terok_token={$TOAD_TOKEN}(?:;|$)`
+	@seed query token={$TOAD_TOKEN}
+
+	handle @authed {
+		reverse_proxy {$TOAD_UPSTREAM}
+	}
+
+	handle @seed {
+		header Set-Cookie "terok_token={$TOAD_TOKEN}; Path=/; HttpOnly; SameSite=Strict"
+		redir {path} 303
+	}
+
+	handle {
+		respond "Unauthorized" 401
+	}
+}
