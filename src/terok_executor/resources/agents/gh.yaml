@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
+roster_version: 1
+
 kind: tool
 label: GitHub CLI
 binary: gh

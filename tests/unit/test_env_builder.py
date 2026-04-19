@@ -131,6 +131,14 @@ class TestBaseEnv:
         result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
         assert isinstance(result, ContainerEnvResult)
 
+    def test_container_protocol_marker(self, base_spec, roster):
+        """Every container receives the host↔container contract version so
+        in-container scripts can adapt on an update without guessing."""
+        from terok_executor.container.env import CONTAINER_PROTOCOL
+
+        result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
+        assert result.env["TEROK_CONTAINER_PROTOCOL"] == str(CONTAINER_PROTOCOL)
+
 
 # ---------------------------------------------------------------------------
 # Git identity

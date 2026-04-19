@@ -85,6 +85,116 @@ class TestLoadBundledAgents:
             assert "container_mount" in auth, f"tool {name}: missing auth.container_mount"
 
 
+class TestRosterVersion:
+    """Roster-schema versioning lets in-container contracts evolve without
+    silently breaking existing user overrides."""
+
+    def test_every_bundled_yaml_declares_version(self) -> None:
+        """Every shipped YAML declares ``roster_version: 1`` so the file
+        is self-describing — readers (including sessions that pull raw
+        YAML without the loader) know which contract it targets."""
+        import importlib.resources
+
+        from terok_executor.roster.loader import ROSTER_VERSION, _load_yaml
+
+        pkg = importlib.resources.files("terok_executor.resources.agents")
+        missing = []
+        for item in pkg.iterdir():
+            if not hasattr(item, "name") or not item.name.endswith(".yaml"):
+                continue
+            data = _load_yaml(item.read_text(encoding="utf-8"))
+            if data.get("roster_version") != ROSTER_VERSION:
+                missing.append(item.name)
+        assert not missing, f"bundled YAMLs lacking roster_version={ROSTER_VERSION}: {missing}"
+
+    def test_loader_accepts_current_version(self, capsys) -> None:
+        """Version matching ``ROSTER_VERSION`` loads silently."""
+        from terok_executor.roster.loader import ROSTER_VERSION, _check_roster_version
+
+        _check_roster_version("x", {"roster_version": ROSTER_VERSION}, source="test")
+        assert capsys.readouterr().err == ""
+
+    def test_loader_accepts_missing_version(self, capsys) -> None:
+        """Missing version is treated as the current version — existing
+        user overrides written before the marker existed must keep working."""
+        from terok_executor.roster.loader import _check_roster_version
+
+        _check_roster_version("x", {"kind": "native"}, source="test")
+        assert capsys.readouterr().err == ""
+
+    def test_loader_accepts_older_version_silently(self, capsys) -> None:
+        """A declared version *older* than the current loader is the
+        backward-compat path — the loader knows how to read it, no warning."""
+        from terok_executor.roster.loader import _check_roster_version
+
+        _check_roster_version("x", {"roster_version": 0}, source="old.yaml")
+        assert capsys.readouterr().err == ""
+
+    def test_loader_warns_on_future_version(self, capsys) -> None:
+        """A future version still loads but surfaces a warning — the host
+        may not speak every field in the file."""
+        from terok_executor.roster.loader import _check_roster_version
+
+        _check_roster_version("x", {"roster_version": 99}, source="user.yaml")
+        stderr = capsys.readouterr().err
+        assert "roster_version=99" in stderr
+        assert "user.yaml" in stderr
+
+    def test_loader_warns_on_non_integer_version(self, capsys) -> None:
+        """A non-integer version is malformed metadata; warn and treat
+        as current so the file still loads."""
+        from terok_executor.roster.loader import _check_roster_version
+
+        _check_roster_version("x", {"roster_version": "one-point-oh"}, source="weird.yaml")
+        stderr = capsys.readouterr().err
+        assert "not a valid integer" in stderr
+
+    def test_loader_strips_version_from_data(self) -> None:
+        """``roster_version`` is metadata, not a field the deserializer
+        should see — removed from the dict before it flows downstream."""
+        from terok_executor.roster.loader import _check_roster_version
+
+        data = {"roster_version": 1, "kind": "native"}
+        _check_roster_version("x", data, source="test")
+        assert "roster_version" not in data
+
+    def test_metadata_only_file_is_skipped(self, capsys) -> None:
+        """A YAML containing only ``roster_version`` has no agent to
+        register — don't add an empty dict to the roster that would
+        later confuse the deserializer."""
+        from terok_executor.roster.loader import _add_agent
+
+        agents: dict[str, dict] = {}
+        _add_agent(agents, "meta_only", {"roster_version": 1}, source="meta.yaml")
+        assert agents == {}
+        assert "metadata-only" in capsys.readouterr().err
+
+    def test_add_agent_preserves_real_content(self) -> None:
+        """Non-empty agent definitions land in the map with their version
+        marker stripped out."""
+        from terok_executor.roster.loader import _add_agent
+
+        agents: dict[str, dict] = {}
+        _add_agent(
+            agents,
+            "claude",
+            {"roster_version": 1, "kind": "native", "label": "Claude"},
+            source="test.yaml",
+        )
+        assert "claude" in agents
+        assert "roster_version" not in agents["claude"]
+        assert agents["claude"]["label"] == "Claude"
+
+    def test_add_agent_ignores_empty_input(self) -> None:
+        """Empty or ``None`` data (parse error / blank file) is a no-op."""
+        from terok_executor.roster.loader import _add_agent
+
+        agents: dict[str, dict] = {}
+        _add_agent(agents, "empty", None, source="blank.yaml")
+        _add_agent(agents, "also_empty", {}, source="blank2.yaml")
+        assert agents == {}
+
+
 # ---------------------------------------------------------------------------
 # Deserialization
 # ---------------------------------------------------------------------------

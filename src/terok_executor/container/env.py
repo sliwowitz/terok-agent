@@ -33,6 +33,16 @@ from terok_sandbox import Sharing, VolumeSpec
 _CONTAINER_RUNTIME_DIR = "/run/terok"
 """Container-side mount point — must match :data:`terok_sandbox.CONTAINER_RUNTIME_DIR`."""
 
+CONTAINER_PROTOCOL = 1
+"""Version of the host↔container env/script contract.
+
+Emitted to every container as ``TEROK_CONTAINER_PROTOCOL``.  In-container
+scripts (``terok-env.sh`` and friends) read it to adapt to the version
+the host is shipping.  Bumped on breaking changes to the env-var or
+script-interface contract between host and container, not on every
+release.  Old containers on protocol N keep running; new containers get
+protocol N+1 and carry the matching host-side code."""
+
 if TYPE_CHECKING:
     from terok_sandbox import CredentialDB, SandboxConfig
 
@@ -202,6 +212,7 @@ def assemble_container_env(
     env["TASK_ID"] = spec.task_id
     env["REPO_ROOT"] = "/workspace"
     env["GIT_RESET_MODE"] = "none"
+    env["TEROK_CONTAINER_PROTOCOL"] = str(CONTAINER_PROTOCOL)
     env["CLAUDE_CONFIG_DIR"] = "/home/dev/.claude"
 
     # 2. OpenCode provider env

@@ -39,6 +39,17 @@ if TYPE_CHECKING:
 
 _USER_AGENTS_DIR_NAME = "agents"
 
+ROSTER_VERSION = 1
+"""Schema version of the agent-roster YAML format.
+
+Bundled agent YAMLs and user override files declare a top-level
+``roster_version: 1`` that matches this constant.  A file with no
+``roster_version`` is treated as version 1 (forward-compat for existing
+user overrides written before the marker existed).  A file declaring a
+future version is still loaded but the loader logs a warning — the host
+and container may be on incompatible contracts.  Bumped only on breaking
+changes to the roster schema, never per release."""
+
 
 # ── Domain model ──────────────────────────────────────────────────────────
 
@@ -569,8 +580,7 @@ def _load_bundled_agents() -> dict[str, dict]:
                 file=sys.stderr,
             )
             continue
-        if data:
-            agents[name] = data
+        _add_agent(agents, name, data, source=f"bundled {name}.yaml")
     return agents
 
 
@@ -591,9 +601,60 @@ def _load_user_agents() -> dict[str, dict]:
                 file=sys.stderr,
             )
             continue
-        if data:
-            agents[name] = data
+        _add_agent(agents, name, data, source=str(path))
     return agents
+
+
+def _add_agent(agents: dict[str, dict], name: str, data: dict | None, *, source: str) -> None:
+    """Validate, strip version metadata, and add an agent entry if it has content.
+
+    Files that turn out to be pure metadata (e.g. only ``roster_version``)
+    are skipped — they contribute no agent definition and would otherwise
+    land as an empty dict downstream and surprise the deserializer.
+    """
+    if not data:
+        return
+    _check_roster_version(name, data, source=source)
+    if not data:
+        # Purely metadata file (only ``roster_version`` was present).
+        print(
+            f"Info [roster]: skipping metadata-only file ({source}) — "
+            f"no agent definition to register for {name!r}.",
+            file=sys.stderr,
+        )
+        return
+    agents[name] = data
+
+
+def _check_roster_version(name: str, data: dict, *, source: str) -> None:
+    """Strip the ``roster_version`` marker and warn only on a *future* version.
+
+    Missing or older versions still load silently — existing user overrides
+    written before the marker existed must keep working, and older-but-still-
+    understood roster files are the backward-compat path.  A declared
+    version strictly greater than :data:`ROSTER_VERSION` prints a warning,
+    because the host may not speak every field the file uses.
+    """
+    declared = data.pop("roster_version", None)
+    if declared is None:
+        return
+    try:
+        declared_int = int(declared)
+    except (TypeError, ValueError):
+        print(
+            f"Warning [roster]: {source} declares roster_version={declared!r}, "
+            f"which is not a valid integer version; treating as current.",
+            file=sys.stderr,
+        )
+        return
+    if declared_int > ROSTER_VERSION:
+        print(
+            f"Warning [roster]: {source} declares roster_version={declared_int}, "
+            f"but this terok-executor speaks version {ROSTER_VERSION}.  "
+            f"Some fields in {name!r} may be ignored; upgrade terok-executor "
+            f"or adjust the file.",
+            file=sys.stderr,
+        )
 
 
 # ── Deserialization ───────────────────────────────────────────────────────
