@@ -208,12 +208,26 @@ def store_api_key(
 
 
 def _prompt_api_key(info: AuthProvider) -> str:
-    """Interactively prompt for an API key (input is hidden)."""
-    import getpass
+    """Interactively prompt for an API key (echoes ``*`` per character).
+
+    pwinput only guards against a *replaced* ``sys.stdin``, not against a
+    non-TTY one — shell redirection (``< keyfile.txt``) leaves ``sys.stdin``
+    identical to ``sys.__stdin__`` with a non-TTY fd, which would crash
+    ``tty.setraw`` inside pwinput.  Gate the call on ``isatty()`` and read
+    a line deterministically otherwise so pipe-fed automation still works.
+    """
+    import sys
 
     if info.api_key_hint:
         print(info.api_key_hint)
-    key = getpass.getpass(f"{info.label} API key: ").strip()
+    prompt = f"{info.label} API key: "
+    if sys.stdin.isatty():
+        import pwinput
+
+        key = pwinput.pwinput(prompt=prompt, mask="*").strip()
+    else:
+        print(prompt, end="", flush=True)
+        key = sys.stdin.readline().strip()
     if not key:
         raise SystemExit("No API key entered.")
     return key
