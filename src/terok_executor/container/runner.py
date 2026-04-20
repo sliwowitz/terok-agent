@@ -310,6 +310,7 @@ class AgentRunner:
         sealed: bool = False,
         hooks: LifecycleHooks | None = None,
         extra_args: list[str] | None = None,
+        hostname: str | None = None,
     ) -> str:
         """Launch a container from a caller-prepared env, volumes, image, and command.
 
@@ -338,6 +339,8 @@ class AgentRunner:
             sealed: Enable sealed isolation (no bind mounts).
             hooks: Optional lifecycle callbacks fired around the launch.
             extra_args: Additional raw ``podman run`` flags (e.g. port publishing).
+            hostname: Override the in-container hostname (podman ``--hostname``).
+                When ``None`` (default), podman assigns the short container ID.
 
         Returns:
             The container name (same as *name*).
@@ -361,6 +364,7 @@ class AgentRunner:
             extra_args=tuple(extra_args or ()),
             unrestricted=unrestricted,
             sealed=sealed,
+            hostname=hostname,
         )
 
         try:
