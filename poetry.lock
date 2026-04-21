@@ -2695,34 +2695,34 @@ tomli-w = ">=1.0,<2.0"
 
 [[package]]
 name = "terok-sandbox"
-version = "0.0.82"
+version = "0.0.83"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
 files = [
-    {file = "terok_sandbox-0.0.82-py3-none-any.whl", hash = "sha256:762b4f2c9f259e2d3fbc5fd0b693d0728386fef50290cb683c737eb4a040399b"},
+    {file = "terok_sandbox-0.0.83-py3-none-any.whl", hash = "sha256:b234f47ee9d6eba7e0c85b397e7f5b9950ed5368070791853d07bdea4b8fbca6"},
 ]
 
 [package.dependencies]
 aiohttp = ">=3.9"
 cryptography = ">=46.0.7"
 platformdirs = ">=4.9.6"
-terok_shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.22/terok_shield-0.6.22-py3-none-any.whl"}
+terok_shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.23/terok_shield-0.6.23-py3-none-any.whl"}
 
 [package.source]
 type = "url"
-url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.82/terok_sandbox-0.0.82-py3-none-any.whl"
+url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.83/terok_sandbox-0.0.83-py3-none-any.whl"
 
 [[package]]
 name = "terok-shield"
-version = "0.6.22"
+version = "0.6.23"
 description = "nftables-based egress firewalling for Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
 files = [
-    {file = "terok_shield-0.6.22-py3-none-any.whl", hash = "sha256:26992bc657a041ca7e9f6a8ef71c7366c8daf29861f9409970a5b6243995130a"},
+    {file = "terok_shield-0.6.23-py3-none-any.whl", hash = "sha256:16b95da7105296f0f64bd678c9d0fd42f02242841f092c800a8f9f0488bcb39d"},
 ]
 
 [package.dependencies]
@@ -2731,7 +2731,7 @@ PyYAML = ">=6.0"
 
 [package.source]
 type = "url"
-url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.22/terok_shield-0.6.22-py3-none-any.whl"
+url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.23/terok_shield-0.6.23-py3-none-any.whl"
 
 [[package]]
 name = "tomli"
@@ -3130,4 +3130,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "57d157767e031be01834f35170606644594e715a8da6710a99ebb3b5189810be"
+content-hash = "046bef12142131f3aff333dda4530c1b25fda90213e133b0f474f5abc14e14a0"
