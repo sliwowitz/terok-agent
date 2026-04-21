@@ -220,6 +220,48 @@ class TestAuthorship:
 
 
 # ---------------------------------------------------------------------------
+# Timezone
+# ---------------------------------------------------------------------------
+
+
+class TestTimezone:
+    """Verify TZ propagation: explicit override wins, otherwise follow the host."""
+
+    def test_explicit_override(self, workspace, envs_dir, roster):
+        spec = _spec(workspace, envs_dir, timezone="Europe/Prague")
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
+        assert result.env["TZ"] == "Europe/Prague"
+
+    def test_explicit_utc_pins_container(self, workspace, envs_dir, roster):
+        """Passing ``"UTC"`` explicitly is how callers opt out of host-follow."""
+        spec = _spec(workspace, envs_dir, timezone="UTC")
+        result = assemble_container_env(spec, roster, caller_manages_vault=True)
+        assert result.env["TZ"] == "UTC"
+
+    def test_detects_host_when_unset(self, base_spec, roster):
+        with patch("terok_executor.container.env.detect_host_timezone") as mock_detect:
+            mock_detect.return_value = "America/Los_Angeles"
+            result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
+        assert result.env["TZ"] == "America/Los_Angeles"
+
+    def test_explicit_wins_over_detection(self, workspace, envs_dir, roster):
+        """Override takes precedence — detection is never even consulted."""
+        spec = _spec(workspace, envs_dir, timezone="Asia/Tokyo")
+        with patch("terok_executor.container.env.detect_host_timezone") as mock_detect:
+            mock_detect.return_value = "Europe/Berlin"
+            result = assemble_container_env(spec, roster, caller_manages_vault=True)
+            mock_detect.assert_not_called()
+        assert result.env["TZ"] == "Asia/Tokyo"
+
+    def test_undetectable_host_omits_tz(self, base_spec, roster):
+        """No override + no detectable host TZ → leave TZ unset (use image default)."""
+        with patch("terok_executor.container.env.detect_host_timezone") as mock_detect:
+            mock_detect.return_value = None
+            result = assemble_container_env(base_spec, roster, caller_manages_vault=True)
+        assert "TZ" not in result.env
+
+
+# ---------------------------------------------------------------------------
 # Repository setup
 # ---------------------------------------------------------------------------
 

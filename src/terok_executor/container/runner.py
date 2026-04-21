@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING
 
 from terok_sandbox import Sharing, VolumeSpec
 
+from terok_executor._util import detect_host_timezone
+
 from .build import BuildError, build_base_images
 
 if TYPE_CHECKING:
@@ -143,6 +145,7 @@ class AgentRunner:
         authorship: str | None = None,
         shared_dir: Path | None = None,
         shared_mount: str = "/shared",
+        timezone: str | None = None,
     ) -> str:
         """Launch a headless agent run. Returns container name.
 
@@ -172,6 +175,7 @@ class AgentRunner:
             authorship=authorship,
             shared_dir=shared_dir,
             shared_mount=shared_mount,
+            timezone=timezone,
         )
 
     def run_interactive(
@@ -192,6 +196,7 @@ class AgentRunner:
         authorship: str | None = None,
         shared_dir: Path | None = None,
         shared_mount: str = "/shared",
+        timezone: str | None = None,
     ) -> str:
         """Launch an interactive container. Returns container name.
 
@@ -214,6 +219,7 @@ class AgentRunner:
             authorship=authorship,
             shared_dir=shared_dir,
             shared_mount=shared_mount,
+            timezone=timezone,
         )
 
     def run_web(
@@ -235,6 +241,7 @@ class AgentRunner:
         authorship: str | None = None,
         shared_dir: Path | None = None,
         shared_mount: str = "/shared",
+        timezone: str | None = None,
     ) -> str:
         """Launch a toad web container. Returns container name.
 
@@ -262,6 +269,7 @@ class AgentRunner:
             authorship=authorship,
             shared_dir=shared_dir,
             shared_mount=shared_mount,
+            timezone=timezone,
         )
 
     def run_tool(
@@ -275,6 +283,7 @@ class AgentRunner:
         name: str | None = None,
         follow: bool = True,
         timeout: int = 600,
+        timezone: str | None = None,
     ) -> str:
         """Launch a sidecar tool container. Returns container name.
 
@@ -292,6 +301,7 @@ class AgentRunner:
             timeout=timeout,
             tool_args=tool_args,
             branch=branch,
+            timezone=timezone,
         )
 
     def launch_prepared(
@@ -576,6 +586,7 @@ class AgentRunner:
         authorship: str | None = None,
         shared_dir: Path | None = None,
         shared_mount: str = "/shared",
+        timezone: str | None = None,
     ) -> str:
         """Unified launch flow for all modes (headless, interactive, web, tool)."""
         from terok_executor.paths import mounts_dir
@@ -608,6 +619,8 @@ class AgentRunner:
                 "REPO_ROOT": "/workspace",
                 "GIT_RESET_MODE": "none",
             }
+            if tz := timezone or detect_host_timezone():
+                env["TZ"] = tz
             if branch:
                 env["GIT_BRANCH"] = branch
             env.update(self._direct_credential_env(provider))
@@ -660,6 +673,7 @@ class AgentRunner:
                 "agent_config_dir": agent_config_dir,
                 "task_dir": task_dir,
                 "envs_dir": mounts_base,
+                "timezone": timezone,
             }
             if human_name:
                 spec_kwargs["human_name"] = human_name

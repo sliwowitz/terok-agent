@@ -122,6 +122,7 @@ depends_on = []
 [[modules]]
 path = "terok_executor.container.env"
 depends_on = [
+    "terok_executor._util",
     "terok_executor.credentials.vault_commands",
     "terok_executor.credentials.vault_config",
     "terok_executor.paths",
@@ -132,6 +133,7 @@ depends_on = [
 [[modules]]
 path = "terok_executor.container.runner"
 depends_on = [
+    "terok_executor._util",
     "terok_executor.container.build",
     "terok_executor.container.cache",
     "terok_executor.container.env",

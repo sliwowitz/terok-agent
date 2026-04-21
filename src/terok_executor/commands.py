@@ -94,6 +94,7 @@ def _handle_run(
     shared_mount: str = "/shared",
     base: str = "ubuntu:24.04",
     family: str | None = None,
+    timezone: str | None = None,
 ) -> None:
     """Run an agent in a hardened container."""
     import sys
@@ -130,6 +131,7 @@ def _handle_run(
         "human_email": human_email,
         "authorship": authorship,
         "shared_dir": resolved_shared_dir,
+        "timezone": timezone,
     }
     if resolved_shared_dir:
         common["shared_mount"] = shared_mount
@@ -169,6 +171,7 @@ def _handle_run_tool(
     tool_args: list[str] | None = None,
     base: str = "ubuntu:24.04",
     family: str | None = None,
+    timezone: str | None = None,
 ) -> None:
     """Run a tool in a sidecar container."""
     from .container.runner import AgentRunner
@@ -183,6 +186,7 @@ def _handle_run_tool(
         gate=effective_gate,
         name=name,
         timeout=timeout,
+        timezone=timezone,
     )
     print(f"Container: {cname}")
 
@@ -398,6 +402,14 @@ RUN_COMMAND = CommandDef(
             default=None,
             help="Override package family for unknown base images (deb or rpm)",
         ),
+        ArgDef(
+            name="--timezone",
+            default=None,
+            help=(
+                "IANA timezone for the container (e.g. 'Europe/Prague', 'UTC'). "
+                "Default: follow the host."
+            ),
+        ),
     ),
 )
 
@@ -419,6 +431,14 @@ RUN_TOOL_COMMAND = CommandDef(
             name="--family",
             default=None,
             help="Override package family for unknown base images (deb or rpm)",
+        ),
+        ArgDef(
+            name="--timezone",
+            default=None,
+            help=(
+                "IANA timezone for the container (e.g. 'Europe/Prague', 'UTC'). "
+                "Default: follow the host."
+            ),
         ),
     ),
 )

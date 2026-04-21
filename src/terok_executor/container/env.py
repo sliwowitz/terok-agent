@@ -30,6 +30,8 @@ from typing import TYPE_CHECKING, Literal
 
 from terok_sandbox import Sharing, VolumeSpec
 
+from terok_executor._util import detect_host_timezone
+
 _CONTAINER_RUNTIME_DIR = "/run/terok"
 """Container-side mount point — must match :data:`terok_sandbox.CONTAINER_RUNTIME_DIR`."""
 
@@ -128,6 +130,18 @@ class ContainerEnvSpec:
     unrestricted: bool = True
     """Enable auto-approve flags for all agents."""
 
+    # -- Locale ------------------------------------------------------------
+
+    timezone: str | None = None
+    """IANA timezone name propagated to the container as ``TZ``.
+
+    ``None`` (the default) means *detect the host's timezone* via
+    :func:`terok_executor._util.detect_host_timezone` — the container
+    then follows the host.  Pass an explicit string (``"UTC"``,
+    ``"Europe/Prague"``) to override, including to pin the container to
+    UTC for reproducible runs.  If neither detection nor an override
+    yields a zone, ``TZ`` is not set and the image default applies."""
+
     # -- Agent config ------------------------------------------------------
 
     agent_config_dir: Path | None = None
@@ -214,6 +228,10 @@ def assemble_container_env(
     env["GIT_RESET_MODE"] = "none"
     env["TEROK_CONTAINER_PROTOCOL"] = str(CONTAINER_PROTOCOL)
     env["CLAUDE_CONFIG_DIR"] = "/home/dev/.claude"
+
+    # 1b. Timezone — explicit override wins, otherwise follow the host
+    if tz := spec.timezone or detect_host_timezone():
+        env["TZ"] = tz
 
     # 2. OpenCode provider env
     env.update(roster.collect_opencode_provider_env())

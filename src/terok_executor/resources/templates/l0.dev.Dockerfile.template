@@ -10,11 +10,13 @@ ENV {% if family == "deb" %}DEBIAN_FRONTEND=noninteractive \
     LANGUAGE="en_US:en" \
     USER="dev"
 
-# Basic dev tooling common to all projects.
+# Basic dev tooling common to all projects.  ``tzdata`` is explicit on both
+# families so the runtime ``TZ`` env var — set from the host's timezone —
+# can resolve against ``/usr/share/zoneinfo``.
 {% if family == "deb" -%}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg git locales openssh-client socat sudo \
-      ripgrep vim tmux \
+      ripgrep vim tmux tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure en_US.UTF-8 exists so bash and agent-spawned shells can always set LC_ALL safely.
@@ -26,7 +28,7 @@ RUN set -eux; \
 # glibc-langpack-en provides en_US.UTF-8 directly — no locale-gen step needed.
 RUN dnf install -y --setopt=install_weak_deps=False \
       ca-certificates curl gnupg2 git glibc-langpack-en openssh-clients \
-      socat sudo ripgrep vim tmux \
+      socat sudo ripgrep vim tmux tzdata \
     && dnf clean all
 {%- endif %}
 
