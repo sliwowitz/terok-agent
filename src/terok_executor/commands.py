@@ -10,6 +10,7 @@ consumers (terok) import it to build their own CLI frontends.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,6 +47,44 @@ class CommandDef:
 
 
 # ── Handlers ──
+
+
+def _preflight_or_exit(
+    provider: str,
+    *,
+    base: str,
+    family: str | None,
+    assume_yes: bool,
+    skip_preflight: bool,
+) -> bool:
+    """Gate the launch on :func:`run_preflight` with TTY-aware fallback.
+
+    Without a TTY *and* without ``--yes``, interactive prompts cannot
+    succeed — rather than crashing on ``input()``, report the condition
+    and point the operator at ``terok-executor setup``.
+    ``--no-preflight`` short-circuits the whole check (use on hosts
+    where another tool manages the prerequisites).
+    """
+    import sys
+
+    if skip_preflight:
+        return True
+
+    from .preflight import run_preflight
+
+    if not sys.stdin.isatty() and not assume_yes:
+        print(
+            "terok-executor: prerequisites unchecked (stdin is not a tty).\n"
+            "  Run:   terok-executor setup\n"
+            "  Or:    terok-executor run --yes <agent> <repo>\n"
+            "  Or:    terok-executor run --no-preflight <agent> <repo>",
+            file=sys.stderr,
+        )
+        return False
+
+    return run_preflight(
+        provider, interactive=True, assume_yes=assume_yes, base_image=base, family=family
+    )
 
 
 def _resolve_host_git_identity() -> tuple[str | None, str | None]:
@@ -95,13 +134,14 @@ def _handle_run(
     base: str = "ubuntu:24.04",
     family: str | None = None,
     timezone: str | None = None,
+    yes: bool = False,
+    no_preflight: bool = False,
 ) -> None:
     """Run an agent in a hardened container."""
-    import sys
 
-    from .preflight import run_preflight
-
-    if not run_preflight(agent, interactive=sys.stdin.isatty(), base_image=base, family=family):
+    if not _preflight_or_exit(
+        agent, base=base, family=family, assume_yes=yes, skip_preflight=no_preflight
+    ):
         raise SystemExit(1)
 
     from .container.runner import AgentRunner
@@ -172,8 +212,15 @@ def _handle_run_tool(
     base: str = "ubuntu:24.04",
     family: str | None = None,
     timezone: str | None = None,
+    yes: bool = False,
+    no_preflight: bool = False,
 ) -> None:
     """Run a tool in a sidecar container."""
+    if not _preflight_or_exit(
+        tool, base=base, family=family, assume_yes=yes, skip_preflight=no_preflight
+    ):
+        raise SystemExit(1)
+
     from .container.runner import AgentRunner
 
     effective_gate = gate and not no_gate
@@ -309,52 +356,125 @@ def _handle_stop(*, name: str) -> None:
     print(f"Stopped: {name}")
 
 
-def _handle_setup(*, check: bool = False) -> None:
-    """Check prerequisites and optionally fix them interactively."""
+def _handle_setup(
+    *,
+    check: bool = False,
+    root: bool = False,
+    no_sandbox: bool = False,
+    no_images: bool = False,
+    base: str = "ubuntu:24.04",
+    family: str | None = None,
+) -> None:
+    """Bootstrap the full terok-executor stack on a fresh host.
 
-    from .preflight import (
-        check_credentials,
-        check_images,
-        check_podman,
-        check_proxy,
-        check_shield,
-    )
+    Phases, any of which can be skipped individually:
+    1. ``sandbox setup`` — shield hooks + vault + gate (bottom-layer services)
+    2. L0+L1 container image build — the slow one; banner warns first-run only
+
+    In ``--check`` mode, nothing is installed — the handler reports each
+    phase's readiness and exits non-zero when something is missing.
+    """
+    if check:
+        _print_setup_status(base)
+        return
+
+    if not no_sandbox:
+        from terok_sandbox.commands import _handle_sandbox_setup
+
+        _handle_sandbox_setup(root=root)
+
+    if not no_images:
+        _build_images_with_banner(base, family)
+
+    print()
+    print("Setup complete.")
+    print("Try:  terok-executor run <agent> .")
+    print("      (prerequisites like SSH keys + agent auth will be offered on first run)")
+
+
+def _handle_uninstall(
+    *,
+    root: bool = False,
+    no_sandbox: bool = False,
+    keep_images: bool = False,
+    base: str = "ubuntu:24.04",
+) -> None:
+    """Remove everything ``terok-executor setup`` installed.
+
+    Reverse of setup: images first (cheap to rebuild, safe to drop),
+    then ``sandbox uninstall`` for the shield/vault/gate teardown.
+    ``--keep-images`` preserves the image cache so a re-install skips
+    the slow rebuild step.
+    """
+    if not keep_images:
+        _remove_images(base)
+    if not no_sandbox:
+        from terok_sandbox.commands import _handle_sandbox_uninstall
+
+        _handle_sandbox_uninstall(root=root)
+
+    print()
+    print("Uninstall complete.")
+
+
+def _build_images_with_banner(base: str, family: str | None) -> None:
+    """Invoke the image factory with a friendly first-run wrapper."""
+    from .container.build import BuildError, build_base_images
+
+    print()
+    print("─ Building agent images ──────────────────────────────────────")
+    print("This is a first-run step and usually takes a few minutes.")
+    print("Subsequent runs reuse the cached layers and start instantly.")
+    print("──────────────────────────────────────────────────────────────")
+    try:
+        images = build_base_images(base, family=family)
+    except BuildError as exc:
+        raise SystemExit(f"Build failed: {exc}") from exc
+    print("──────────────────────────────────────────────────────────────")
+    print(f"L0: {images.l0}")
+    print(f"L1: {images.l1}")
+    print("Images ready.  Next run will skip this step.")
+
+
+def _remove_images(base: str) -> None:
+    """Drop L0+L1 images for *base* from the local store (idempotent)."""
+    from .container.build import l0_image_tag, l1_image_tag
+
+    for tag in (l1_image_tag(base), l0_image_tag(base)):
+        try:
+            subprocess.run(
+                ["podman", "image", "rm", "--force", tag],
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            # Nothing to remove if podman isn't around; uninstall is still a no-op success.
+            pass
+    print(f"Removed image cache for base: {base}")
+
+
+def _print_setup_status(base: str) -> None:
+    """Render the ``setup --check`` report — per-phase readiness, no fixes."""
+    from .preflight import check_images, check_podman, check_sandbox_services
 
     checks = [
-        ("podman", check_podman()),
-        ("vault", check_proxy()),
-        ("shield", check_shield()),
-        ("images", check_images("ubuntu:24.04")),
+        check_podman(),
+        check_sandbox_services(),
+        check_images(base),
     ]
-
     print("\nterok-executor status:\n")
-    all_ok = True
-    for label, result in checks:
-        marker = "ok" if result.ok else ("info" if label == "shield" else "FAIL")
-        print(f"  {result.name:<22} {marker} ({result.message})")
-        if not result.ok and label != "shield":
-            all_ok = False
-
-    # Credential summary for known agent providers
-    from .roster.loader import get_roster
-
-    roster = get_roster()
+    ok = True
+    for r in checks:
+        marker = "ok" if r.ok else "FAIL"
+        print(f"  {r.name:<22} {marker} ({r.message})")
+        ok = ok and r.ok
     print()
-    for name in sorted(roster.agent_names):
-        cr = check_credentials(name)
-        marker = "ok" if cr.ok else "--"
-        print(f"  {name:<22} {marker}")
-
-    if all_ok:
-        print("\nAll prerequisites met. Run: terok-executor run <agent> <repo>")
-    else:
-        if not check:
-            print("\nFix issues above, or just run: terok-executor run <agent> <repo>")
-            print("The run command will offer to fix missing prerequisites interactively.")
-        else:
-            print("\nSome prerequisites are missing (see above).")
-            raise SystemExit(1)
-    print()
+    if ok:
+        print("All prerequisites met.")
+        return
+    print("Run: terok-executor setup")
+    raise SystemExit(1)
 
 
 # ── Command definitions ──
@@ -410,6 +530,18 @@ RUN_COMMAND = CommandDef(
                 "Default: follow the host."
             ),
         ),
+        ArgDef(
+            name="--yes",
+            action="store_true",
+            dest="yes",
+            help="Accept all first-run prerequisite prompts without asking",
+        ),
+        ArgDef(
+            name="--no-preflight",
+            action="store_true",
+            dest="no_preflight",
+            help="Skip prerequisite checks entirely (caller manages setup)",
+        ),
     ),
 )
 
@@ -439,6 +571,18 @@ RUN_TOOL_COMMAND = CommandDef(
                 "IANA timezone for the container (e.g. 'Europe/Prague', 'UTC'). "
                 "Default: follow the host."
             ),
+        ),
+        ArgDef(
+            name="--yes",
+            action="store_true",
+            dest="yes",
+            help="Accept all first-run prerequisite prompts without asking",
+        ),
+        ArgDef(
+            name="--no-preflight",
+            action="store_true",
+            dest="no_preflight",
+            help="Skip prerequisite checks entirely (caller manages setup)",
         ),
     ),
 )
@@ -495,13 +639,70 @@ STOP_COMMAND = CommandDef(
 
 SETUP_COMMAND = CommandDef(
     name="setup",
-    help="Check prerequisites (vault, images, credentials)",
+    help="Install sandbox services + container images (first-run bootstrap)",
     handler=_handle_setup,
     args=(
         ArgDef(
             name="--check",
             action="store_true",
-            help="Report status and exit non-zero if prerequisites are missing",
+            help="Report status without installing anything; exit non-zero if incomplete",
+        ),
+        ArgDef(
+            name="--root",
+            action="store_true",
+            help="Install shield hooks system-wide (requires sudo); vault + gate stay per-user",
+        ),
+        ArgDef(
+            name="--no-sandbox",
+            action="store_true",
+            dest="no_sandbox",
+            help="Skip the shield+vault+gate install (caller manages these)",
+        ),
+        ArgDef(
+            name="--no-images",
+            action="store_true",
+            dest="no_images",
+            help="Skip the L0+L1 container image build",
+        ),
+        ArgDef(
+            name="--base",
+            default="ubuntu:24.04",
+            help="Base OS image to build L0+L1 on top of (default: ubuntu:24.04)",
+        ),
+        ArgDef(
+            name="--family",
+            default=None,
+            help="Override package family for unknown base images (deb or rpm)",
+        ),
+    ),
+)
+
+UNINSTALL_COMMAND = CommandDef(
+    name="uninstall",
+    help="Remove sandbox services + container images (mirror of setup)",
+    handler=_handle_uninstall,
+    args=(
+        ArgDef(
+            name="--root",
+            action="store_true",
+            help="Remove shield hooks from the system hooks directory (requires sudo)",
+        ),
+        ArgDef(
+            name="--no-sandbox",
+            action="store_true",
+            dest="no_sandbox",
+            help="Skip the shield+vault+gate uninstall",
+        ),
+        ArgDef(
+            name="--keep-images",
+            action="store_true",
+            dest="keep_images",
+            help="Keep the L0+L1 image cache so a re-install skips the rebuild",
+        ),
+        ArgDef(
+            name="--base",
+            default="ubuntu:24.04",
+            help="Base OS image whose L0+L1 cache should be removed (default: ubuntu:24.04)",
         ),
     ),
 )
@@ -514,6 +715,7 @@ COMMANDS: tuple[CommandDef, ...] = (
     AGENTS_COMMAND,
     BUILD_COMMAND,
     SETUP_COMMAND,
+    UNINSTALL_COMMAND,
     LIST_COMMAND,
     STOP_COMMAND,
 )

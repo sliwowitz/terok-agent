@@ -24,15 +24,45 @@ Each layer depends only on the one below it.
 
 ## Quick start
 
+Two paths converge on the same ready state.  Pick whichever fits.
+
+### Explicit bootstrap (recommended for first install)
+
 ```bash
 pip install terok-executor        # requires Python 3.12+, Podman (rootless)
 
-terok-executor build              # build base + agent images
+terok-executor setup              # install shield hooks + vault + gate, build images
 terok-executor auth claude        # authenticate (OAuth or API key)
 
 terok-executor run claude . -p "Fix the failing test in test_auth.py"
-terok-executor run claude . --interactive   # shell into the container
-terok-executor run claude . --web           # toad web UI
+```
+
+`terok-executor setup` is idempotent — safe to re-run after upgrades.
+The image build step is minutes-long only on first install; subsequent
+runs reuse the cached layers.
+
+### Lazy first run
+
+```bash
+pip install terok-executor
+terok-executor run claude .       # prompts for each missing prerequisite
+```
+
+Missing pieces are offered one at a time with `[Y/n]` prompts:
+sandbox services, container images, gate SSH key, and agent
+credentials.  Mandatory items (services, images) block the launch if
+declined; optional ones (SSH key, auth) print the consequence and
+proceed.
+
+Non-interactive environments (CI, scripts) should either run
+`terok-executor setup` first or pass `--yes` / `--no-preflight` on the
+`run` invocation.
+
+### Uninstall
+
+```bash
+terok-executor uninstall              # removes services + image cache
+terok-executor uninstall --keep-images  # leaves the image cache so re-install is fast
 ```
 
 ## Commands
@@ -40,11 +70,13 @@ terok-executor run claude . --web           # toad web UI
 | Command | Description |
 |---------|-------------|
 | `run` | Run an agent in a hardened container (headless, interactive, or web) |
+| `setup` | Bootstrap sandbox services + container images (first-run) |
+| `uninstall` | Remove sandbox services + container images (mirror of setup) |
 | `auth` | Authenticate a provider (OAuth, API key, or `--api-key` direct) |
 | `agents` | List registered agents (`--all` includes tools like gh, glab) |
 | `build` | Build base + agent container images |
 | `run-tool` | Run a sidecar tool (e.g. CodeRabbit, SonarCloud) |
-| `ls` | List running terok-executor containers |
+| `list` | List running terok-executor containers |
 | `stop` | Stop a running container |
 | `vault` | Vault management (start, stop, status, install, routes) |
 
