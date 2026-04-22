@@ -280,7 +280,13 @@ def _confirm(prompt: str, *, assume_yes: bool = False) -> bool:
 
 
 def _fix_sandbox_services() -> bool:
-    """Run the ``sandbox setup`` aggregator to install shield+vault+gate."""
+    """Run the ``sandbox setup`` aggregator to install shield+vault+gate.
+
+    Always installs into the per-user scope.  System-wide installation
+    is an explicit operator choice, exposed via ``terok-executor setup
+    --root``; the interactive preflight path never escalates to sudo
+    behind the user's back.
+    """
     from terok_sandbox.commands import _handle_sandbox_setup
 
     try:
