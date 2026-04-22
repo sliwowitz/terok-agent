@@ -45,7 +45,7 @@ def test_podman_missing(_which: MagicMock) -> None:
 # ── Sandbox services aggregate ───────────────────────────────────────
 
 
-@patch("terok_executor.preflight._gate_installed", return_value=True)
+@patch("terok_sandbox.get_server_status")
 @patch("terok_sandbox.check_environment")
 @patch("terok_sandbox.is_vault_running", return_value=True)
 @patch("terok_sandbox.is_vault_socket_active", return_value=False)
@@ -53,14 +53,15 @@ def test_sandbox_services_ok(
     _sock: MagicMock,
     _run: MagicMock,
     mock_env: MagicMock,
-    _gate: MagicMock,
+    mock_status: MagicMock,
 ) -> None:
     """All three (shield, vault, gate) ready → ok."""
     mock_env.return_value = MagicMock(health="ok")
+    mock_status.return_value = MagicMock(mode="systemd")
     assert check_sandbox_services().ok is True
 
 
-@patch("terok_executor.preflight._gate_installed", return_value=False)
+@patch("terok_sandbox.get_server_status")
 @patch("terok_sandbox.check_environment")
 @patch("terok_sandbox.is_vault_running", return_value=False)
 @patch("terok_sandbox.is_vault_socket_active", return_value=False)
@@ -68,10 +69,11 @@ def test_sandbox_services_lists_missing(
     _sock: MagicMock,
     _run: MagicMock,
     mock_env: MagicMock,
-    _gate: MagicMock,
+    mock_status: MagicMock,
 ) -> None:
     """Missing items are all named in the same check's message."""
     mock_env.return_value = MagicMock(health="setup-needed")
+    mock_status.return_value = MagicMock(mode=None)
     r = check_sandbox_services()
     assert r.ok is False
     for expected in ("vault", "shield", "gate"):

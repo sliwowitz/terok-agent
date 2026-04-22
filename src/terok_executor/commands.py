@@ -440,17 +440,15 @@ def _remove_images(base: str) -> None:
     """Drop L0+L1 images for *base* from the local store (idempotent)."""
     from .container.build import l0_image_tag, l1_image_tag
 
-    for tag in (l1_image_tag(base), l0_image_tag(base)):
-        try:
-            subprocess.run(
-                ["podman", "image", "rm", "--force", tag],
-                capture_output=True,
-                timeout=30,
-                check=False,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            # Nothing to remove if podman isn't around; uninstall is still a no-op success.
-            pass
+    try:
+        subprocess.run(
+            ["podman", "image", "rm", "--force", l1_image_tag(base), l0_image_tag(base)],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
     print(f"Removed image cache for base: {base}")
 
 

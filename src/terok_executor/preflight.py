@@ -59,16 +59,20 @@ def check_sandbox_services() -> CheckResult:
     from terok_sandbox import (
         SandboxConfig,
         check_environment,
+        get_server_status,
         is_vault_running,
         is_vault_socket_active,
     )
 
+    # One SandboxConfig read covers every downstream probe — each of the
+    # helpers below would otherwise rebuild it from layered YAML.
+    cfg = SandboxConfig()
     missing: list[str] = []
-    if not (is_vault_socket_active() or is_vault_running(cfg=SandboxConfig())):
+    if not (is_vault_socket_active() or is_vault_running(cfg=cfg)):
         missing.append("vault")
-    if check_environment().health != "ok":
+    if check_environment(cfg).health != "ok":
         missing.append("shield hooks")
-    if not _gate_installed():
+    if get_server_status(cfg).mode not in ("systemd", "daemon"):
         missing.append("gate")
 
     if missing:
@@ -164,10 +168,7 @@ def _fix_sandbox_services() -> bool:
 
     try:
         _handle_sandbox_setup()
-    except SystemExit as exc:
-        print(f"  sandbox setup failed: {exc}", file=sys.stderr)
-        return False
-    except Exception as exc:  # noqa: BLE001
+    except (SystemExit, Exception) as exc:  # noqa: BLE001
         print(f"  sandbox setup failed: {exc}", file=sys.stderr)
         return False
     return True
@@ -189,8 +190,7 @@ def _fix_images(base_image: str, family: str | None = None) -> bool:
 
 def _fix_ssh_key(scope: str = "standalone") -> bool:
     """Generate a gate-signing SSH key for *scope* in the credential DB."""
-    from terok_sandbox import SandboxConfig
-    from terok_sandbox.credentials.ssh import SSHManager
+    from terok_sandbox import SandboxConfig, SSHManager
 
     try:
         with SSHManager.open(scope=scope, db_path=SandboxConfig().db_path) as mgr:
@@ -332,10 +332,11 @@ def _offer_credentials(provider: str, *, interactive: bool, assume_yes: bool) ->
 
 
 def _note_shield() -> None:
-    """Shield readiness already covered by sandbox-services; surface bypass only."""
-    r = check_shield()
-    if not r.ok:
-        print(f"\n  Note: {r.message}")
+    """Surface the bypass override when set — regular shield state already in sandbox-services."""
+    from terok_sandbox import check_environment
+
+    if check_environment().health == "bypass":
+        print("\n  Note: shield is in bypass mode — containers have unrestricted network")
 
 
 # ── Printing ───────────────────────────────────────────────────────────
@@ -372,17 +373,3 @@ def _provider_hints(current_provider: str) -> None:
     if others:
         print("\n  Hint: authenticate additional tools with: terok-executor auth <name>")
         print(f"        Available: {', '.join(others)}")
-
-
-# ── Private collaborators ──────────────────────────────────────────────
-
-
-def _gate_installed() -> bool:
-    """Return True when the gate server has been installed — systemd or daemon-managed.
-
-    Socket-activated units report ``running=False`` until the first
-    connection, so ``mode`` is the load-bearing signal here.
-    """
-    from terok_sandbox import get_server_status
-
-    return get_server_status().mode in ("systemd", "daemon")
