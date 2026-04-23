@@ -280,17 +280,16 @@ def _confirm(prompt: str, *, assume_yes: bool = False) -> bool:
 
 
 def _fix_sandbox_services() -> bool:
-    """Run the ``sandbox setup`` aggregator to install shield+vault+gate.
+    """Self-heal missing sandbox services via :func:`ensure_sandbox_ready`.
 
-    Always installs into the per-user scope.  System-wide installation
-    is an explicit operator choice, exposed via ``terok-executor setup
-    --root``; the interactive preflight path never escalates to sudo
-    behind the user's back.
+    Always per-user — the interactive preflight never escalates to
+    sudo behind the operator's back.  ``--root`` is the explicit
+    opt-in via ``terok-executor setup``.
     """
-    from terok_sandbox.commands import _handle_sandbox_setup
+    from terok_executor.sandbox import ensure_sandbox_ready
 
     try:
-        _handle_sandbox_setup()
+        ensure_sandbox_ready()
     except (SystemExit, Exception) as exc:  # noqa: BLE001
         print(f"  sandbox setup failed: {exc}", file=sys.stderr)
         return False

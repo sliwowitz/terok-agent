@@ -24,15 +24,23 @@ from terok_executor.commands import (
     _handle_uninstall,
     _preflight_or_exit,
 )
+from terok_executor.sandbox import ensure_sandbox_ready
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def setup_spies():
-    """Replace every phase (sandbox, images) with a MagicMock so order is observable."""
+    """Replace sandbox + image phases with MagicMocks so order is observable.
+
+    Setup goes through ``ensure_sandbox_ready`` (the composition helper);
+    uninstall goes direct to ``_handle_sandbox_uninstall`` (nothing extra
+    to compose on teardown — routes.json survives uninstall by design).
+    The ``ensure_vault_routes`` + aggregator interaction has its own
+    ``TestEnsureSandboxReady`` coverage below.
+    """
     with (
-        patch("terok_sandbox.commands._handle_sandbox_setup") as sandbox_setup,
+        patch("terok_executor.sandbox.ensure_sandbox_ready") as sandbox_setup,
         patch("terok_sandbox.commands._handle_sandbox_uninstall") as sandbox_uninstall,
         patch("terok_executor.commands._build_images_with_banner") as build_images,
         patch("terok_executor.commands._remove_images") as remove_images,
@@ -109,6 +117,58 @@ class TestHandleUninstall:
     def test_root_flag_propagates_to_sandbox_uninstall(self, setup_spies) -> None:
         _handle_uninstall(root=True)
         setup_spies["sandbox_uninstall"].assert_called_once_with(root=True)
+
+
+# ── Sandbox-composition helper ────────────────────────────────────────
+
+
+@pytest.fixture
+def compose_spies():
+    """Patch the two targets ``ensure_sandbox_ready`` composes: routes + aggregator."""
+    with (
+        patch("terok_executor.roster.loader.ensure_vault_routes") as routes,
+        patch("terok_sandbox.commands._handle_sandbox_setup") as aggregator,
+    ):
+        yield routes, aggregator
+
+
+class TestEnsureSandboxReady:
+    """``ensure_sandbox_ready`` generates routes before calling the aggregator.
+
+    Order-first is the whole point of the helper: the vault reads
+    ``routes.json`` on the ``systemctl restart`` the aggregator's
+    vault phase performs, so routes must be on disk beforehand.
+    """
+
+    def test_generates_routes_before_sandbox_setup(self, compose_spies) -> None:
+        routes, aggregator = compose_spies
+        order: list[str] = []
+        routes.side_effect = lambda cfg: order.append("routes")
+        aggregator.side_effect = lambda **_: order.append("sandbox")
+        ensure_sandbox_ready()
+        assert order == ["routes", "sandbox"]
+
+    def test_threads_root_flag_to_aggregator(self, compose_spies) -> None:
+        _routes, aggregator = compose_spies
+        ensure_sandbox_ready(root=True)
+        assert aggregator.call_args.kwargs["root"] is True
+
+    def test_no_vault_skips_route_generation(self, compose_spies) -> None:
+        """``--no-vault`` means the vault unit isn't being touched — skip routes too."""
+        routes, aggregator = compose_spies
+        ensure_sandbox_ready(no_vault=True)
+        routes.assert_not_called()
+        aggregator.assert_called_once()
+        assert aggregator.call_args.kwargs["no_vault"] is True
+
+    def test_opt_out_flags_forwarded_to_aggregator(self, compose_spies) -> None:
+        """Every ``no_*`` flag passes through so callers can skip specific phases."""
+        _routes, aggregator = compose_spies
+        ensure_sandbox_ready(no_shield=True, no_gate=True, no_clearance=True)
+        kwargs = aggregator.call_args.kwargs
+        assert kwargs["no_shield"] is True
+        assert kwargs["no_gate"] is True
+        assert kwargs["no_clearance"] is True
 
 
 # ── Preflight gate ────────────────────────────────────────────────────

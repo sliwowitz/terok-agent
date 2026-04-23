@@ -377,9 +377,9 @@ def _handle_setup(
         return
 
     if not no_sandbox:
-        from terok_sandbox.commands import _handle_sandbox_setup
+        from .sandbox import ensure_sandbox_ready
 
-        _handle_sandbox_setup(root=root)
+        ensure_sandbox_ready(root=root)
 
     if not no_images:
         _build_images_with_banner(base, family)

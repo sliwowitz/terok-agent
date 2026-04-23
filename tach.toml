@@ -177,6 +177,16 @@ depends_on = [
     "terok_executor.roster.loader",
 ]
 
+# ── Sandbox bootstrap composition ──────────────────────────────────
+
+# Routes + sandbox aggregator in one call.  Uninstall is pure
+# delegation to the sandbox aggregator and doesn't live here.
+[[modules]]
+path = "terok_executor.sandbox"
+depends_on = [
+    "terok_executor.roster.loader",
+]
+
 # ── Preflight — prerequisite checks ────────────────────────────────
 
 # Pre-launch checks + interactive fixers for `terok-executor run`
@@ -188,6 +198,7 @@ depends_on = [
     "terok_executor.credentials.vault_config",
     "terok_executor.paths",
     "terok_executor.roster.loader",
+    "terok_executor.sandbox",
 ]
 
 # ── CLI surface ────────────────────────────────────────────────────
@@ -203,6 +214,7 @@ depends_on = [
     "terok_executor.paths",
     "terok_executor.preflight",
     "terok_executor.roster.loader",
+    "terok_executor.sandbox",
 ]
 
 # CLI entry point — wires command registry to argparse
@@ -241,4 +253,5 @@ depends_on = [
     "terok_executor.provider.instructions",
     "terok_executor.provider.providers",
     "terok_executor.roster",
+    "terok_executor.sandbox",
 ]
