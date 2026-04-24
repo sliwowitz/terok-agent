@@ -34,11 +34,21 @@ def ensure_sandbox_ready(
     ``no_vault`` gates the routes pre-step (if vault isn't being
     touched, don't regenerate); everything else (``root``, other
     ``no_*`` flags) flows through to the aggregator.
+
+    Routes regeneration renders a ``Vault routes`` stage line so it
+    sits in the same column as the aggregator's own output rather
+    than failing silently above it — a corrupt YAML roster is the
+    most plausible reason for setup to fail before the aggregator
+    even starts, and a stage-shaped failure beats an unframed
+    traceback.
     """
+    from terok_sandbox import stage_line
     from terok_sandbox.commands import _handle_sandbox_setup
 
     from terok_executor.roster.loader import ensure_vault_routes
 
     if not no_vault:
-        ensure_vault_routes(cfg=cfg)
+        with stage_line("Vault routes") as s:
+            ensure_vault_routes(cfg=cfg)
+            s.ok("regenerated")
     _handle_sandbox_setup(cfg=cfg, no_vault=no_vault, **aggregator_kwargs)
