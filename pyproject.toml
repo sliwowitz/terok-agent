@@ -31,7 +31,7 @@ python = ">=3.12,<4.0"
 # — a stale URL pin here would otherwise conflict with terok's git pin
 # on the upstream sandbox tip.  Release script flips it to a URL pin
 # when the next sandbox wheel ships.
-terok-sandbox = {url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.103/terok_sandbox-0.0.103-py3-none-any.whl"}  # TODO: repin to wheel at release
+terok-sandbox = {git = "https://github.com/sliwowitz/terok-sandbox.git", branch = "feat/exec-stdio-primitive"}
 "ruamel.yaml" = ">=0.18"
 Jinja2 = ">=3.1"
 tomli-w = ">=1.0"
