@@ -276,8 +276,11 @@ class ACPProxy:
                 ),
             )
         else:
-            # Same agent, just changing model — strip namespace before
-            # forwarding so the backend sees its own model id.
+            # Same agent, just changing model — strip the ``agent:`` prefix
+            # so the backend sees its own bare model id.  Session-id
+            # translation (``proxy-1`` → backend's id) is handled separately
+            # inside :meth:`_forward_to_backend`, so this call only rewrites
+            # ``params.value``.
             await self._forward_to_backend(
                 _with_params_value(frame, model_id),
             )
