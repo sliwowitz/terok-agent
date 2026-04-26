@@ -21,9 +21,10 @@ Public surface: :class:`ACPRoster`, :class:`AgentRosterCache`,
 from __future__ import annotations
 
 from .cache import AgentRosterCache, CacheKey
+from .endpoint import ACPEndpointStatus
 from .probe import ProbeError, probe_agent_models
 from .proxy import AgentBindError
-from .roster import ACPEndpointStatus, ACPRoster, list_authenticated_agents
+from .roster import ACPRoster, list_authenticated_agents
 
 __all__ = [
     "ACPEndpointStatus",

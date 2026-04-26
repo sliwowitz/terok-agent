@@ -24,17 +24,19 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from terok_sandbox import CredentialDB, SandboxConfig
+
+from terok_executor.container.build import AGENTS_LABEL
 
 from .cache import GLOBAL_CACHE, AgentRosterCache, CacheKey
 from .probe import ProbeError, probe_agent_models
 from .proxy import ACPProxy
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from terok_sandbox import Sandbox
 
 _logger = logging.getLogger(__name__)
@@ -50,25 +52,6 @@ DEFAULT_CREDENTIAL_SCOPE = "default"
 """Scope name used by :class:`terok_sandbox.CredentialDB` for the
 process-wide credential set.  Mirrors what
 :func:`terok_executor.credentials.auth.authenticate` writes."""
-
-
-class ACPEndpointStatus(StrEnum):
-    """Surface state of a per-task ACP endpoint, as visible to ``acp list``.
-
-    Tracks daemon presence and readiness without forcing the listing path
-    to actually probe or connect.
-    """
-
-    ACTIVE = "active"
-    """Daemon up, socket bound, ready for client connections."""
-
-    READY = "ready"
-    """Task running with at least one authenticated agent — a daemon
-    will spawn on first ``terok acp connect``."""
-
-    UNSUPPORTED = "unsupported"
-    """Task running but no in-image agents are authenticated.  Connect
-    would fail; surface honestly so the user knows to authenticate."""
 
 
 @dataclass(frozen=True)
@@ -98,8 +81,6 @@ def list_authenticated_agents(
     no container exec.  Used by :class:`ACPRoster` and by the host-side
     ``acp list`` to classify endpoints as ``ready`` vs ``unsupported``.
     """
-    from terok_sandbox import CredentialDB, SandboxConfig
-
     path = db_path or SandboxConfig().db_path
     db = CredentialDB(path)
     try:
@@ -160,16 +141,14 @@ class ACPRoster:
         """Agents declared in the image's ``ai.terok.agents`` label.
 
         Parsed once per roster instance — the image label is stable for
-        the lifetime of the running task.  The label format is a comma-
-        separated list (see ``terok_executor.container.build:63``).
+        the lifetime of the running task.  The label is a comma-
+        separated list (see :data:`terok_executor.container.build.AGENTS_LABEL`).
         """
-        from terok_executor.container.build import AGENTS_LABEL
-
         image = self._sandbox.runtime.image(self._image_id)
         raw = image.labels().get(AGENTS_LABEL, "")
         return tuple(token for token in (s.strip() for s in raw.split(",")) if token)
 
-    # ── Public surface ────────────────────────────────────────────────
+    # ── Domain operations ────────────────────────────────────────────
 
     def agent_matrix(self) -> _AgentMatrix:
         """Return the live (configured, authenticated) snapshot for this task.
@@ -234,7 +213,25 @@ class ACPRoster:
         proxy = ACPProxy(roster=self)
         await proxy.run(reader, writer)
 
-    # ── Internals ─────────────────────────────────────────────────────
+    def exec_wrapper(self, agent_id: str, *, stdin: object, stdout: object) -> int:
+        """Run ``terok-{agent_id}-acp`` in the task container with bridged stdio.
+
+        The proxy spawns backends through this method so the sandbox
+        and container handles stay private to the roster.  Sync because
+        :meth:`Sandbox.runtime.exec_stdio` is sync — callers in async
+        contexts wrap the call in ``loop.run_in_executor``.
+        *stdin* / *stdout* are the host-side ends of an ``os.pipe()``
+        pair, typed as :class:`BinaryIO`.
+        """
+        runtime = self._sandbox.runtime
+        return runtime.exec_stdio(
+            runtime.container(self._container_name),
+            [f"terok-{agent_id}-acp"],
+            stdin=stdin,
+            stdout=stdout,
+        )
+
+    # ── Lower-level operations ───────────────────────────────────────
 
     def _cache_key(self, agent_id: str) -> CacheKey:
         return CacheKey(
@@ -252,26 +249,9 @@ class ACPRoster:
             sandbox=self._sandbox,
         )
 
-    # ── Accessors used by the proxy ──────────────────────────────────
+    # ── Queries ──────────────────────────────────────────────────────
 
     @property
     def task_id(self) -> str:
         """Identifier of the running task this roster aggregates."""
         return self._task_id
-
-    def exec_wrapper(self, agent_id: str, *, stdin: object, stdout: object) -> int:
-        """Run ``terok-{agent_id}-acp`` in the task container with bridged stdio.
-
-        Sync entry point the proxy drives via ``loop.run_in_executor`` —
-        keeps the sandbox + container handle behind one method instead of
-        leaking them as public properties just so the proxy can spawn
-        backends.  *stdin* / *stdout* are the host-side ends of an
-        ``os.pipe()`` pair (as :class:`BinaryIO`).
-        """
-        runtime = self._sandbox.runtime
-        return runtime.exec_stdio(
-            runtime.container(self._container_name),
-            [f"terok-{agent_id}-acp"],
-            stdin=stdin,
-            stdout=stdout,
-        )

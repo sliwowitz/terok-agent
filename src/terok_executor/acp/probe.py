@@ -31,7 +31,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-from .proxy import iter_model_choice_dicts
+from .model_options import iter_model_choice_dicts
 
 if TYPE_CHECKING:
     from terok_sandbox import Sandbox
@@ -112,12 +112,7 @@ async def probe_agent_models(
     runtime = sandbox.runtime
     exec_future = loop.run_in_executor(
         None,
-        _run_exec_stdio,
-        runtime,
-        container,
-        wrapper_cmd,
-        child_in,
-        child_out,
+        lambda: runtime.exec_stdio(container, wrapper_cmd, stdin=child_in, stdout=child_out),
     )
 
     try:
@@ -151,11 +146,6 @@ async def probe_agent_models(
             await asyncio.wait_for(exec_future, timeout=2.0)
         except Exception as exc:  # noqa: BLE001
             _logger.debug("ACP probe exec_future cleanup: %s", exc)
-
-
-def _run_exec_stdio(runtime: Any, container: Any, cmd: list[str], stdin: Any, stdout: Any) -> int:
-    """Bridge the runtime's sync ``exec_stdio`` into an executor thread."""
-    return runtime.exec_stdio(container, cmd, stdin=stdin, stdout=stdout)
 
 
 async def _drive_handshake(

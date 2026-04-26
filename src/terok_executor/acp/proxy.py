@@ -9,26 +9,23 @@ container looks like a single endpoint.  It parses every JSON-RPC frame
 (NDJSON over stdio) — there is no byte-level passthrough; uninteresting
 frames are re-serialised after parsing.
 
-Two phases:
+Two phases drive the lifecycle:
 
 - **Pre-bind**: the proxy answers ``initialize`` and ``session/new``
   locally, advertising the aggregated ``agent:model`` list as a
   ``category: "model"`` configOption.  No backend process exists yet.
 - **Bound**: on the first ``session/set_config_option`` for the model
-  category, the proxy parses the ``agent:model`` value, spawns the
-  agent's wrapper script via :meth:`Sandbox.runtime.exec_stdio`, replays
-  ``initialize`` + ``session/new`` to it, and from then on bridges
-  frames in both directions.  The option list is rewritten on the way
-  out so cross-agent values disappear from the client's view.
+  category, the proxy spawns the agent's wrapper script via
+  :meth:`Sandbox.runtime.exec_stdio`, replays
+  ``initialize`` + ``session/new`` + ``set_config_option`` to it, and
+  from then on bridges frames in both directions.  The option list is
+  rewritten on the way out so cross-agent values disappear from the
+  client's view.
 
-V1 limitations (deferred):
-
-- One client per server connection.  A second concurrent client is
-  rejected during ``initialize`` with a JSON-RPC error.
-- One session per binding.  ``session/load`` and multi-session is not
-  exercised.
-- No live re-emission of configOption changes; clients see the up-to-
-  date roster at ``session/new`` time only.
+V1 takes shortcuts where the design is still settling: one client per
+connection, one session per binding, no push notifications when the
+authed-agent set changes mid-connection.  All of these are tracked
+for v2.
 """
 
 from __future__ import annotations
@@ -37,8 +34,13 @@ import asyncio
 import json
 import logging
 import os
-from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
+
+from .model_options import (
+    MODEL_NAMESPACE_SEP,
+    MODEL_OPTION_CATEGORY,
+    iter_model_choice_dicts,
+)
 
 if TYPE_CHECKING:
     from .roster import ACPRoster
@@ -49,14 +51,6 @@ ACP_PROTOCOL_VERSION = 1
 """Version this proxy advertises on ``initialize``.  Mirrors what the
 probe sends; in practice both backends and clients negotiate down."""
 
-MODEL_OPTION_CATEGORY = "model"
-"""ACP semantic category for the model selector configOption."""
-
-MODEL_NAMESPACE_SEP = ":"
-"""Separator between agent and model in the namespaced id (e.g.
-``claude:opus-4.6``).  Chosen over ``/`` to avoid collisions with
-OpenRouter-style ids like ``anthropic/claude-opus-4``."""
-
 PROXY_REQUEST_ID_PREFIX = "px-"
 """Prefix for JSON-RPC request ids the proxy injects (replay of
 ``initialize``/``session/new`` to the backend).  Strings can't collide
@@ -65,36 +59,6 @@ with the int ids ACP clients typically use."""
 JSONRPC_INVALID_REQUEST = -32600
 JSONRPC_INVALID_PARAMS = -32602
 JSONRPC_INTERNAL_ERROR = -32603
-
-
-def iter_model_choice_dicts(result: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    """Yield each dict-shaped choice from ``result.configOptions[category=model]``.
-
-    Tolerant of the in-flight ACP schema variants we observed during
-    design — the model selector can nest its choices under ``select``
-    or directly, and use ``options``/``values``/``choices`` as the
-    container key.  Skips non-dict entries; consumers that need to
-    mutate in place can rely on dict-only semantics.
-
-    Shared by :func:`_extract_model_ids` (probe.py, read-only) and
-    :func:`_rewrite_model_options_in_place` (proxy.py, mutating) so the
-    schema-tolerance logic lives in one place.
-    """
-    options = result.get("configOptions") or []
-    for opt in options:
-        if not isinstance(opt, dict) or opt.get("category") != MODEL_OPTION_CATEGORY:
-            continue
-        select = opt.get("select")
-        nested = select if isinstance(select, dict) else opt
-        if not isinstance(nested, dict):
-            continue
-        for key in ("options", "values", "choices"):
-            choices = nested.get(key)
-            if not isinstance(choices, list):
-                continue
-            for entry in choices:
-                if isinstance(entry, dict):
-                    yield entry
 
 
 class AgentBindError(RuntimeError):
@@ -174,7 +138,7 @@ class ACPProxy:
         elif method == "session/set_config_option":
             await self._handle_set_config_option(frame)
         else:
-            await self._handle_other_client_method(frame)
+            await self._passthrough_to_backend(frame)
 
     async def _handle_initialize(self, frame: dict[str, Any]) -> None:
         """Answer ``initialize`` locally with aggregated capabilities.
@@ -285,8 +249,13 @@ class ACPProxy:
                 _with_params_value(frame, model_id),
             )
 
-    async def _handle_other_client_method(self, frame: dict[str, Any]) -> None:
-        """Catch-all: forward to backend, or reject pre-bind."""
+    async def _passthrough_to_backend(self, frame: dict[str, Any]) -> None:
+        """Forward unrecognised methods to the bound backend, or reject pre-bind.
+
+        ``session/prompt`` and friends arrive here.  Pre-bind they have
+        no destination, so the client is told to pick a model first;
+        post-bind the proxy stays out of the way.
+        """
         if not self._is_bound:
             await self._reply_error(
                 frame.get("id"),
