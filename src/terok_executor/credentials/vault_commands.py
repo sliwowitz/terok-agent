@@ -50,7 +50,7 @@ def _is_injected_credentials_file(path: Path) -> bool:
 
     Returns ``True`` only when **all** of these hold:
 
-    - ``claudeAiOauth.accessToken`` equals [`PHANTOM_CREDENTIALS_MARKER`][]
+    - ``claudeAiOauth.accessToken`` equals [`PHANTOM_CREDENTIALS_MARKER`][terok_sandbox.PHANTOM_CREDENTIALS_MARKER]
     - ``claudeAiOauth.refreshToken`` is empty or absent
 
     Any parse error or unexpected structure → ``False`` (treat as real leak).
@@ -79,7 +79,7 @@ def scan_leaked_credentials(mounts_base: Path) -> list[tuple[str, Path]]:
     into containers.  This function checks each routed provider's mount for
     credential files that would leak real tokens alongside phantom ones.
 
-    Files injected by [`_write_claude_credentials_file`][terok_executor.auth._write_claude_credentials_file]
+    Files injected by `_write_claude_credentials_file`
     are recognised by their dummy ``accessToken`` marker and skipped.
 
     Symlinks are rejected to prevent a container from tricking the scan into

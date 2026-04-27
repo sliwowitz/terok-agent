@@ -9,7 +9,7 @@ host.  Copying that cache into the task workspace before container
 launch replaces the slow in-container ``git clone`` with a fast file
 copy followed by a lightweight ``git fetch + reset``.
 
-The public entry point is [`seed_workspace_from_clone_cache`][].
+The public entry point is [`seed_workspace_from_clone_cache`][terok_executor.container.cache.seed_workspace_from_clone_cache].
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ def _resolve_cache_dir(scope: str, cfg: SandboxConfig | None) -> Path | None:
 def _copy_tree(src: Path, dst: Path) -> None:
     """Copy *src* into *dst* using ``cp --reflink=auto`` for CoW speed.
 
-    Falls back to [`shutil.copytree`][] when ``cp`` is unavailable.
+    Falls back to [`shutil.copytree`][shutil.copytree] when ``cp`` is unavailable.
     """
     try:
         subprocess.run(

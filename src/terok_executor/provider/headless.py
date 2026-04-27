@@ -4,8 +4,8 @@
 
 """Headless (autopilot) command construction and config resolution.
 
-Provider definitions live in [`providers`][], shell wrapper generation
-lives in [`wrappers`][].
+Provider definitions live in [`providers`][terok_executor.provider.providers], shell wrapper generation
+lives in [`wrappers`][terok_executor.provider.wrappers].
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from .providers import AgentProvider
 class ProviderConfig:
     """Resolved per-run config for a headless provider.
 
-    Produced by [`apply_provider_config`][] after best-effort feature mapping.
+    Produced by [`apply_provider_config`][terok_executor.provider.headless.apply_provider_config] after best-effort feature mapping.
     """
 
     model: str | None
@@ -74,7 +74,7 @@ def apply_provider_config(
     features that have no analogue.
 
     Args:
-        config: Merged agent config dict (from [`resolve_agent_config`][]).
+        config: Merged agent config dict (from [`resolve_agent_config`][terok.lib.domain.project.resolve_agent_config]).
         overrides: CLI flag overrides (model, max_turns, timeout, instructions).
     """
     if overrides is None:

@@ -91,7 +91,7 @@ def prepare_agent_config_dir(spec: AgentConfigSpec) -> Path:
       OpenCode and Blablador configs
 
     Args:
-        spec: All agent-config parameters bundled in an [`AgentConfigSpec`][].
+        spec: All agent-config parameters bundled in an [`AgentConfigSpec`][terok_executor.provider.agents.AgentConfigSpec].
 
     Returns the agent_config_dir path.
     """
@@ -274,7 +274,7 @@ def _inject_opencode_instructions(config_path: Path) -> None:
     file is left untouched (idempotent).
 
     Uses the same inter-process file lock + atomic-replace pattern as
-    [`_write_session_hook`][] for concurrency safety.
+    `_write_session_hook` for concurrency safety.
     """
     try:
         import fcntl

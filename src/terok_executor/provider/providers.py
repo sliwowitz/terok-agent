@@ -4,7 +4,7 @@
 
 """Agent provider registry: definitions, lookup, and environment collection.
 
-Each supported AI coding agent is described by an [`AgentProvider`][]
+Each supported AI coding agent is described by an [`AgentProvider`][terok_executor.provider.providers.AgentProvider]
 dataclass.  The ``AGENT_PROVIDERS`` dict maps short names to descriptors
 and is populated at package load time from the YAML roster.
 """
@@ -195,9 +195,9 @@ def resolve_provider(
 
 
 def get_provider(name: str | None, *, default_agent: str | None = None) -> AgentProvider:
-    """Resolve a provider name against the global [`AGENT_PROVIDERS`][] registry.
+    """Resolve a provider name against the global [`AGENT_PROVIDERS`][terok_executor.provider.providers.AGENT_PROVIDERS] registry.
 
-    Convenience wrapper around [`resolve_provider`][].
+    Convenience wrapper around [`resolve_provider`][terok_executor.provider.providers.resolve_provider].
     """
     return resolve_provider(AGENT_PROVIDERS, name, default_agent=default_agent)
 

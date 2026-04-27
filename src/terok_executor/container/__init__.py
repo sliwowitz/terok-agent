@@ -3,7 +3,7 @@
 
 """Container lifecycle — image building, environment assembly, agent launch.
 
-Delegates to [`.build`][] for Dockerfile rendering and ``podman build``,
-[`.env`][] for container environment and volume assembly, and
-[`.runner`][] for the high-level agent runner that composes all three.
+Delegates to `.build` for Dockerfile rendering and ``podman build``,
+`.env` for container environment and volume assembly, and
+`.runner` for the high-level agent runner that composes all three.
 """

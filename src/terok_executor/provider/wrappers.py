@@ -52,7 +52,7 @@ def generate_agent_wrapper(
         claude_wrapper_fn: ``(cfg: WrapperConfig) -> str``.
             Required when ``provider.name == "claude"``.
 
-    See also [`generate_all_wrappers`][] which produces wrappers for every
+    See also [`generate_all_wrappers`][terok_executor.provider.wrappers.generate_all_wrappers] which produces wrappers for every
     registered provider in one file.
     """
     if provider.name == "claude":
@@ -76,7 +76,7 @@ def generate_all_wrappers(
     invoke any agent regardless of which provider was configured as default.
 
     A shared ``_terok_resume_or_fresh`` helper is emitted at the top of the
-    file for stale-session fallback (see [`_RESUME_FALLBACK_FN`][]).
+    file for stale-session fallback (see `_RESUME_FALLBACK_FN`).
 
     Args:
         claude_wrapper_fn: Required -- produces the Claude wrapper.

@@ -38,7 +38,7 @@ def resolve_instructions(
 
     Supports:
     - Flat string: returned as-is
-    - Per-provider dict: uses [`resolve_provider_value`][], falls back to ``_default``
+    - Per-provider dict: uses [`resolve_provider_value`][terok_executor.resolve_provider_value], falls back to ``_default``
     - List (with ``_inherit``): splices bundled default at each ``_inherit`` sentinel
     - Absent/None: returns bundled default
 

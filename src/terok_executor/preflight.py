@@ -280,7 +280,7 @@ def _confirm(prompt: str, *, assume_yes: bool = False) -> bool:
 
 
 def _fix_sandbox_services() -> bool:
-    """Self-heal missing sandbox services via [`ensure_sandbox_ready`][].
+    """Self-heal missing sandbox services via [`ensure_sandbox_ready`][terok_executor.ensure_sandbox_ready].
 
     Always per-user — the interactive preflight never escalates to
     sudo behind the operator's back.  ``--root`` is the explicit

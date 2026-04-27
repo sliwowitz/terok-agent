@@ -491,7 +491,7 @@ class TestWaitForExit:
             assert runner.wait_for_exit("terok-x") == 124
 
     def test_timeout_raises(self) -> None:
-        """``subprocess.TimeoutExpired`` surfaces as [`TimeoutError`][]
+        """``subprocess.TimeoutExpired`` surfaces as [`TimeoutError`][TimeoutError]
         so callers can signal the real exit code separately."""
         runner = AgentRunner(sandbox=_mock_sandbox())
         with patch(

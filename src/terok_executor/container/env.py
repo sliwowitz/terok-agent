@@ -33,7 +33,7 @@ from terok_sandbox import Sharing, VolumeSpec
 from terok_executor._util import detect_host_timezone
 
 _CONTAINER_RUNTIME_DIR = "/run/terok"
-"""Container-side mount point — must match [`terok_sandbox.CONTAINER_RUNTIME_DIR`][]."""
+"""Container-side mount point — must match [`terok_sandbox.CONTAINER_RUNTIME_DIR`][terok_sandbox.CONTAINER_RUNTIME_DIR]."""
 
 CONTAINER_PROTOCOL = 1
 """Version of the host↔container env/script contract.
@@ -115,7 +115,7 @@ class ContainerEnvSpec:
 
     vault_transport: Literal["direct", "socket"] = "direct"
     """Vault transport mode: ``"direct"`` (HTTP base URL) or ``"socket"``
-    (Unix socket path via [`socket_env`][VaultRoute.socket_env])."""
+    (Unix socket path via [`socket_env`][terok_executor.VaultRoute.socket_env])."""
 
     vault_required: bool = False
     """When ``True``, raise ``SystemExit`` if the vault is
@@ -136,7 +136,7 @@ class ContainerEnvSpec:
     """IANA timezone name propagated to the container as ``TZ``.
 
     ``None`` (the default) means *detect the host's timezone* via
-    [`terok_executor._util.detect_host_timezone`][] — the container
+    `terok_executor._util.detect_host_timezone` — the container
     then follows the host.  Pass an explicit string (``"UTC"``,
     ``"Europe/Prague"``) to override, including to pin the container to
     UTC for reproducible runs.  If neither detection nor an override
@@ -161,7 +161,7 @@ class ContainerEnvSpec:
     """Host-side task directory.  A temp dir is created if ``None``."""
 
     envs_dir: Path | None = None
-    """Base directory for shared config mounts.  Uses [`paths.mounts_dir`][]
+    """Base directory for shared config mounts.  Uses [`paths.mounts_dir`][terok_executor.paths.mounts_dir]
     if ``None``."""
 
     # -- Caller-specific mounts --------------------------------------------
