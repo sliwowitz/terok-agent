@@ -100,7 +100,7 @@ def apply_shared_config_patches(roster: AgentRoster, mounts_base: Path) -> None:
     been recreated empty) always contain the correct vault addresses.
     Idempotent: safe to call on every launch.
 
-    Raises :class:`ConfigPatchError` on failure — callers must not start
+    Raises [`ConfigPatchError`][] on failure — callers must not start
     the container if vault routing cannot be established.
     """
     location = resolve_vault_location()
@@ -168,12 +168,12 @@ def resolve_vault_location() -> VaultLocation:
 def _safe_config_path(shared_dir: Path, filename: str) -> Path:
     """Resolve *filename* inside *shared_dir*, rejecting traversal attempts.
 
-    Raises :class:`ConfigPatchError` if the resolved path escapes the
+    Raises [`ConfigPatchError`][] if the resolved path escapes the
     intended directory (absolute paths, ``..`` components, symlinks).
 
     Note: this check is TOCTOU-racy against a container that can plant
     symlinks between the check here and the subsequent write.  Callers
-    MUST use :func:`_read_nofollow` / :func:`_write_nofollow` to open
+    MUST use [`_read_nofollow`][] / [`_write_nofollow`][] to open
     the final file, so a symlink planted in the race window is rejected
     at open() time (``ELOOP``) instead of being silently followed.
     """
@@ -193,7 +193,7 @@ def _read_nofollow(path: Path) -> bytes | None:
 
     The shared config directories are bind-mounted read-write into task
     containers, so an attacker can plant a symlink between the
-    :func:`_safe_config_path` check and this read.  ``O_NOFOLLOW``
+    [`_safe_config_path`][] check and this read.  ``O_NOFOLLOW``
     rejects that at open() time.
     """
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -217,7 +217,7 @@ def _read_nofollow(path: Path) -> bytes | None:
 def _write_nofollow(path: Path, data: bytes) -> None:
     """Write *data* to *path* refusing to follow symlinks.
 
-    A planted symlink at *path* is rejected with :class:`ConfigPatchError`
+    A planted symlink at *path* is rejected with [`ConfigPatchError`][]
     (via ``ELOOP``) rather than silently followed — protecting against a
     compromised container redirecting the executor's write to an
     arbitrary operator-owned file (CWE-367 / CWE-59).

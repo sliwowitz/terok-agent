@@ -52,7 +52,7 @@ class CommandDef:
 def _setup_verdict_or_exit(*, skip: bool) -> None:
     """Cheap stamp-based gate that runs before live preflight.
 
-    Reads :func:`terok_sandbox.needs_setup` and bounces the user with
+    Reads [`terok_sandbox.needs_setup`][] and bounces the user with
     a structured exit code when the install is missing or stale:
 
     - ``OK`` → return; live preflight proceeds.

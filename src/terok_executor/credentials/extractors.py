@@ -5,7 +5,7 @@
 
 Each extractor reads a vendor-specific credential file from a temporary
 auth container mount and returns a normalized dict suitable for storage
-in :class:`~terok_sandbox.CredentialDB`.  The dict must contain at least
+in [`CredentialDB`][terok_sandbox.CredentialDB].  The dict must contain at least
 one of ``access_token``, ``token``, or ``key`` --- the vault server
 uses these fields to inject the real auth header.
 

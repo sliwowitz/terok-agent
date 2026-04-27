@@ -826,7 +826,7 @@ class TestBuildSidecarImage:
 
 
 class TestSplitImageRef:
-    """Verify port-aware OCI ref parsing in :func:`_split_image_ref`."""
+    """Verify port-aware OCI ref parsing in [`_split_image_ref`][]."""
 
     @pytest.mark.parametrize(
         ("ref", "expected"),

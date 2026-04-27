@@ -4,7 +4,7 @@
 
 """CLI entry point for terok-executor.
 
-Built from the command registry in :mod:`terok_executor.commands`.
+Built from the command registry in [`terok_executor.commands`][].
 No command logic lives here — just argument wiring and dispatch.
 """
 
@@ -58,7 +58,7 @@ def main() -> None:
 
 
 def _wire_command(sub: argparse._SubParsersAction, cmd: CommandDef) -> None:
-    """Add a :class:`CommandDef` to an argparse subparser group."""
+    """Add a [`CommandDef`][] to an argparse subparser group."""
     p = sub.add_parser(cmd.name, help=cmd.help)
     for arg in cmd.args:
         kwargs: dict = {}

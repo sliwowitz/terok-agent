@@ -328,8 +328,8 @@ class AgentRunner:
         volume specs — e.g. the terok orchestrator, which computes
         project-specific env via ``build_task_env_and_volumes`` and owns
         the container naming policy.  For end-to-end runs from a repo and
-        prompt (CLI-style), use :meth:`run_headless`, :meth:`run_interactive`,
-        or :meth:`run_web` instead.
+        prompt (CLI-style), use [`run_headless`][], [`run_interactive`][],
+        or [`run_web`][] instead.
 
         In sealed isolation mode (*sealed=True*), the sandbox splits the
         launch into ``create`` → ``copy_to`` → ``start`` instead of a
@@ -391,22 +391,22 @@ class AgentRunner:
     ) -> int:
         """Block until *container_name* exits; return its exit code.
 
-        Raises :class:`TimeoutError` when *timeout* elapses before the
+        Raises [`TimeoutError`][] when *timeout* elapses before the
         container exits — signalled out of band so a container that
         legitimately exits with code 124 (the ``timeout(1)`` convention)
         is returned unambiguously as its real exit code, not conflated
         with the wait timing out.
 
-        Raises :class:`RuntimeError` when ``podman wait`` itself fails
+        Raises [`RuntimeError`][] when ``podman wait`` itself fails
         (non-zero returncode, e.g. unknown container) or returns output
         that is not a container exit code — the podman error is never
         impersonated as the container's exit code, which would let a
         "no such container" diagnostic leak out as exit code 125.
 
-        Raises :class:`FileNotFoundError` when ``podman`` is not on PATH.
+        Raises [`FileNotFoundError`][] when ``podman`` is not on PATH.
         Intentionally re-implements the wait loop instead of delegating
-        to :meth:`Sandbox.wait_for_exit`, which swallows
-        :class:`subprocess.TimeoutExpired` and returns the 124 sentinel
+        to [`Sandbox.wait_for_exit`][], which swallows
+        [`subprocess.TimeoutExpired`][] and returns the 124 sentinel
         — fine for fire-and-forget generic waits, lossy for task-level
         callers that need to record the real exit code.
         """
@@ -451,12 +451,12 @@ class AgentRunner:
         """Return the container's logged output as a single string.
 
         One-shot retrieval for the "just show me what ran" case.  For live
-        streaming (human watching), use :meth:`stream_logs_process`; for
-        archival, use :meth:`capture_logs`.
+        streaming (human watching), use [`stream_logs_process`][]; for
+        archival, use [`capture_logs`][].
 
-        Raises :class:`RuntimeError` when ``podman logs`` returns a non-zero
+        Raises [`RuntimeError`][] when ``podman logs`` returns a non-zero
         status (e.g. unknown container) — the diagnostic is surfaced rather
-        than impersonated as empty output.  :class:`FileNotFoundError`
+        than impersonated as empty output.  [`FileNotFoundError`][]
         propagates when ``podman`` is not on PATH.
         """
         import subprocess
@@ -542,7 +542,7 @@ class AgentRunner:
         (matches ``subprocess.STDOUT``); otherwise stderr is a separate
         pipe the caller can drain.
 
-        :class:`FileNotFoundError` propagates when ``podman`` is not on
+        [`FileNotFoundError`][] propagates when ``podman`` is not on
         PATH — callers handle it (usually as a user-facing "podman not
         installed" error).
         """
@@ -869,7 +869,7 @@ class AgentRunner:
     ) -> Path:
         """Prepare the agent-config directory for a task.
 
-        *project_root* is passed to :func:`resolve_instructions` so that
+        *project_root* is passed to [`resolve_instructions`][] so that
         ``<repo>/instructions.md`` is appended when present.
         """
         from terok_executor.provider.agents import AgentConfigSpec, prepare_agent_config_dir
@@ -945,8 +945,8 @@ def _build_logs_cmd(
 ) -> list[str]:
     """Assemble a ``podman logs`` command with the given flags.
 
-    Shared builder so the three log entry points (:meth:`AgentRunner.logs`,
-    :meth:`AgentRunner.capture_logs`, :meth:`AgentRunner.stream_logs_process`)
+    Shared builder so the three log entry points ([`AgentRunner.logs`][],
+    [`AgentRunner.capture_logs`][], [`AgentRunner.stream_logs_process`][])
     agree on flag order and naming.
     """
     cmd = ["podman", "logs"]

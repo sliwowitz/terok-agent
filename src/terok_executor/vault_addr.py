@@ -6,7 +6,7 @@
 Two transports reach the vault from inside a task container:
 
 - **Socket mode** (default, preferred): the host's vault socket is
-  bind-mounted into the container at :data:`CONTAINER_VAULT_SOCKET`.
+  bind-mounted into the container at [`CONTAINER_VAULT_SOCKET`][].
   Clients that can speak HTTP-over-UNIX (``gh``, ``claude``) connect
   directly; everyone else goes through an in-container socat bridge that
   exposes the vault as plain TCP on ``localhost:LOOPBACK_VAULT_PORT``.
@@ -14,7 +14,7 @@ Two transports reach the vault from inside a task container:
 - **TCP mode** (legacy): the vault's token broker listens on a host TCP
   port (``host.containers.internal:<broker_port>``).  Socket-only
   clients reach it via a local socat bridge that presents a Unix socket
-  at :data:`LOOPBACK_BRIDGE_SOCKET`.
+  at [`LOOPBACK_BRIDGE_SOCKET`][].
 
 These paths and port numbers have to agree across the python builders,
 the shell bridge script, and the doctor probes — define them here so

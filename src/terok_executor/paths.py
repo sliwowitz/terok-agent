@@ -3,7 +3,7 @@
 
 """Resolves filesystem paths for executor state and bind-mount directories.
 
-Delegates to :func:`terok_sandbox.paths.namespace_state_dir` for the
+Delegates to [`terok_sandbox.paths.namespace_state_dir`][] for the
 shared XDG/FHS resolution logic — no vendored copy of the platform
 detection code.
 """

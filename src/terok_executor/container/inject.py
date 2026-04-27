@@ -5,7 +5,7 @@
 
 In sealed isolation mode, the container has no bind mounts — files must be
 injected via ``podman cp``.  These helpers complement
-:func:`~terok_executor.provider.agents.prepare_agent_config_dir` which prepares
+[`prepare_agent_config_dir`][terok_executor.provider.agents.prepare_agent_config_dir] which prepares
 the files on the host side.
 """
 
@@ -19,7 +19,7 @@ def inject_agent_config(container_name: str, config_dir: Path) -> None:
     """Copy a prepared agent-config directory into a sealed container.
 
     The container must be in the *created* or *stopped* state.  Delegates
-    to :meth:`terok_sandbox.Sandbox.copy_to`.
+    to [`terok_sandbox.Sandbox.copy_to`][].
     """
     from terok_sandbox import Sandbox
 

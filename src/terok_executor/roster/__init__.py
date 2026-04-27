@@ -3,8 +3,8 @@
 
 """Loads agent and tool definitions from layered YAML config into a queryable roster.
 
-Delegates to :mod:`.loader` for YAML deserialization and roster construction,
-and to :mod:`.config_stack` for generic layered config resolution.
+Delegates to [`.loader`][] for YAML deserialization and roster construction,
+and to [`.config_stack`][] for generic layered config resolution.
 """
 
 from .loader import (

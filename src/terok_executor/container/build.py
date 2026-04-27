@@ -29,7 +29,7 @@ Usage as a library::
 
 The L0/L1 templates select between Debian/Ubuntu (``apt``) and Fedora-like
 (``dnf``) package managers via a ``family`` Jinja2 variable resolved by
-:func:`detect_family` from the base image name (or an explicit override).
+[`detect_family`][] from the base image name (or an explicit override).
 
 L1 is roster-driven: each agent's install steps live in its YAML file
 (``install.run_as_root`` / ``install.run_as_dev``), and the L1 template
@@ -67,7 +67,7 @@ INSTALLED_ENV_PATH = "/etc/terok/installed.env"
 """In-container env file that scripts source to learn what's installed."""
 
 _HELP_SECTION_FILES: dict[str, str] = {"agent": "agents.txt", "dev_tool": "dev-tools.txt"}
-"""Maps each :class:`~terok_executor.roster.loader.HelpSection` to its fragment filename."""
+"""Maps each [`HelpSection`][terok_executor.roster.loader.HelpSection] to its fragment filename."""
 
 _ESCAPE_RE = re.compile(r"\\(?:[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|[nrtbfav\\'\"])")
 """Backslash escapes recognised in roster ``help.label`` strings.
@@ -97,8 +97,8 @@ _MAX_TAG_LEN = 120
 """Cap on the tag portion of an OCI image reference.
 
 OCI spec allows 128; the extra headroom absorbs future suffix changes
-without rebuilding history.  Both :func:`_base_tag` (for the L0 tag)
-and :func:`l1_image_tag` (for the L1 base+agents tag) respect this.
+without rebuilding history.  Both [`_base_tag`][] (for the L0 tag)
+and [`l1_image_tag`][] (for the L1 base+agents tag) respect this.
 """
 
 _AGENT_DIGEST_LEN = 12
@@ -169,7 +169,7 @@ def detect_family(base_image: str, override: str | None = None) -> str:
     (Ubuntu/Debian, Fedora, the official Podman container, NVIDIA CUDA/HPC
     SDK).  NVIDIA images are inspected at the tag level so UBI variants
     (e.g. ``…:13.0.0-devel-ubi9``) resolve to ``rpm`` while Ubuntu
-    variants resolve to ``deb``.  Unknown images raise :class:`BuildError`
+    variants resolve to ``deb``.  Unknown images raise [`BuildError`][]
     with a hint to set ``family:`` explicitly.
     """
     if override is not None:
@@ -201,7 +201,7 @@ def build_project_image(
     """Build an OCI image from a pre-rendered Dockerfile.
 
     The thin ``podman build`` invoker that the three opinionated factories
-    in this module (:func:`build_base_images`, :func:`build_sidecar_image`,
+    in this module ([`build_base_images`][], [`build_sidecar_image`][],
     and terok's project/L2 build) share.  Callers own Dockerfile
     rendering, tag naming, label computation, and build-context staging —
     this function only assembles flags and shells out.
@@ -263,7 +263,7 @@ def build_base_images(
     Args:
         base_image: Base OS image (e.g. ``ubuntu:24.04``, ``nvidia/cuda:...``).
         family: Override for the package family (``"deb"`` or ``"rpm"``).
-            ``None`` means detect from *base_image* via :func:`detect_family`.
+            ``None`` means detect from *base_image* via [`detect_family`][].
         agents: Roster entries to install, as the literal string ``"all"``
             (every entry) or a tuple of names (transitively expanded by
             ``depends_on``).  Same selection drives the OCI label, the L1
@@ -273,7 +273,7 @@ def build_base_images(
         build_dir: Build context directory (must be empty or absent).
 
     Returns:
-        :class:`ImageSet` with the L0 and L1 image tags.
+        [`ImageSet`][] with the L0 and L1 image tags.
 
     Raises:
         BuildError: If podman is missing, the family cannot be resolved,
@@ -374,7 +374,7 @@ def build_sidecar_image(
     Args:
         base_image: Base OS image (passed through to L0 build).
         family: Override for the package family (``"deb"`` or ``"rpm"``).
-            ``None`` means detect from *base_image* via :func:`detect_family`.
+            ``None`` means detect from *base_image* via [`detect_family`][].
         tool_name: Tool to install (selects Jinja2 conditional in template).
         rebuild: Force rebuild with cache bust.
         full_rebuild: Force rebuild with ``--no-cache``.
@@ -454,7 +454,7 @@ def prepare_build_context(dest: Path) -> None:
     - ``tmux/``        — container tmux config
 
     Dockerfiles themselves are **not** written here — they are rendered
-    and placed by :func:`build_base_images` (which calls this function
+    and placed by [`build_base_images`][] (which calls this function
     internally).
     """
     dest.mkdir(parents=True, exist_ok=True)
@@ -472,7 +472,7 @@ def render_l0(base_image: str = DEFAULT_BASE_IMAGE, *, family: str | None = None
     The *base_image* is normalised before rendering so that blank or
     whitespace-only values produce a valid Dockerfile.  *family*
     (``"deb"`` or ``"rpm"``) selects the package-manager branch of the
-    template; ``None`` resolves it via :func:`detect_family`.
+    template; ``None`` resolves it via [`detect_family`][].
     """
     base_image = _normalize_base_image(base_image)
     fam = detect_family(base_image, override=family)
@@ -495,7 +495,7 @@ def render_l1(
     (``"deb"`` or ``"rpm"``) selects the package-manager branch and is
     required — there is no L0 reference to detect from at this point, so
     callers must supply the value resolved at the L0 level (typically via
-    :func:`detect_family`).  Each roster install snippet is itself rendered
+    [`detect_family`][]).  Each roster install snippet is itself rendered
     as a Jinja template with ``family`` in scope, so snippets can carry
     ``{% if family == "deb" %}…{% else %}…{% endif %}`` branches for
     package-manager-specific commands.  *agents* is a tuple of
@@ -649,10 +649,10 @@ def l1_image_tag(base_image: str, agents: tuple[str, ...] | None = None) -> str:
     sanitiser to keep the final tag within the OCI tag charset
     (``[A-Za-z0-9_.-]``).
 
-    The full tag (after ``:``) is bounded by :data:`_MAX_TAG_LEN`.  When
+    The full tag (after ``:``) is bounded by [`_MAX_TAG_LEN`][].  When
     the readable ``base-a-b-c`` form would overflow, the agent portion
     is replaced with a SHA1 digest of the sorted selection — same
-    collision-resistant fallback pattern :func:`_base_tag` uses
+    collision-resistant fallback pattern [`_base_tag`][] uses
     internally for overlong image names.
     """
     base_tag = _base_tag(base_image)
@@ -787,7 +787,7 @@ def _clean_packaging_artifacts(dest: Path) -> None:
 
 
 def _check_podman() -> None:
-    """Raise :class:`BuildError` if podman is not on PATH."""
+    """Raise [`BuildError`][] if podman is not on PATH."""
     if shutil.which("podman") is None:
         raise BuildError("podman not found; please install podman")
 

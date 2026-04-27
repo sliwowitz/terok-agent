@@ -33,7 +33,7 @@ from terok_sandbox import Sharing, VolumeSpec
 from terok_executor._util import detect_host_timezone
 
 _CONTAINER_RUNTIME_DIR = "/run/terok"
-"""Container-side mount point — must match :data:`terok_sandbox.CONTAINER_RUNTIME_DIR`."""
+"""Container-side mount point — must match [`terok_sandbox.CONTAINER_RUNTIME_DIR`][]."""
 
 CONTAINER_PROTOCOL = 1
 """Version of the host↔container env/script contract.
@@ -60,7 +60,7 @@ _logger = logging.getLogger(__name__)
 class ContainerEnvSpec:
     """Specification for container environment assembly.
 
-    All fields use primitives or :class:`~pathlib.Path` — no terok-specific
+    All fields use primitives or [`Path`][pathlib.Path] — no terok-specific
     types.  Callers pre-resolve domain-specific decisions (security class,
     authorship mode, SSH mount, gate mirror creation) and pass results here.
     """
@@ -115,7 +115,7 @@ class ContainerEnvSpec:
 
     vault_transport: Literal["direct", "socket"] = "direct"
     """Vault transport mode: ``"direct"`` (HTTP base URL) or ``"socket"``
-    (Unix socket path via :attr:`~VaultRoute.socket_env`)."""
+    (Unix socket path via [`socket_env`][VaultRoute.socket_env])."""
 
     vault_required: bool = False
     """When ``True``, raise ``SystemExit`` if the vault is
@@ -136,7 +136,7 @@ class ContainerEnvSpec:
     """IANA timezone name propagated to the container as ``TZ``.
 
     ``None`` (the default) means *detect the host's timezone* via
-    :func:`terok_executor._util.detect_host_timezone` — the container
+    [`terok_executor._util.detect_host_timezone`][] — the container
     then follows the host.  Pass an explicit string (``"UTC"``,
     ``"Europe/Prague"``) to override, including to pin the container to
     UTC for reproducible runs.  If neither detection nor an override
@@ -161,7 +161,7 @@ class ContainerEnvSpec:
     """Host-side task directory.  A temp dir is created if ``None``."""
 
     envs_dir: Path | None = None
-    """Base directory for shared config mounts.  Uses :func:`paths.mounts_dir`
+    """Base directory for shared config mounts.  Uses [`paths.mounts_dir`][]
     if ``None``."""
 
     # -- Caller-specific mounts --------------------------------------------

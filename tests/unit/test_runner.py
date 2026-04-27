@@ -355,7 +355,7 @@ class TestLaunchPrepared:
     ``launch_prepared`` is the public entry point terok uses to hand a
     caller-assembled env and volumes to the sandbox without reimplementing
     ``RunSpec`` construction.  Exercises the mapping from method args to
-    :class:`~terok_sandbox.RunSpec` fields.
+    [`RunSpec`][terok_sandbox.RunSpec] fields.
     """
 
     def test_returns_container_name(self, tmp_path: Path) -> None:
@@ -491,7 +491,7 @@ class TestWaitForExit:
             assert runner.wait_for_exit("terok-x") == 124
 
     def test_timeout_raises(self) -> None:
-        """``subprocess.TimeoutExpired`` surfaces as :class:`TimeoutError`
+        """``subprocess.TimeoutExpired`` surfaces as [`TimeoutError`][]
         so callers can signal the real exit code separately."""
         runner = AgentRunner(sandbox=_mock_sandbox())
         with patch(

@@ -8,7 +8,7 @@ Contributes domain-specific checks to the layered doctor protocol
 integrity in shared mounts, and phantom token / base URL verification
 for the vault.
 
-The checks are returned as :class:`DoctorCheck` specs — probe commands
+The checks are returned as [`DoctorCheck`][] specs — probe commands
 + evaluate callables — that the top-level orchestrator (``terok sickbay``)
 executes inside containers via ``podman exec``.
 """
@@ -65,7 +65,7 @@ def agent_doctor_checks(
             derive the expected host.
 
     Returns:
-        List of :class:`DoctorCheck` instances ready for orchestration.
+        List of [`DoctorCheck`][] instances ready for orchestration.
     """
     socket_mode = token_broker_port is None
     checks: list[DoctorCheck] = [

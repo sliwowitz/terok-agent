@@ -354,7 +354,7 @@ def _capture_credentials(
 ) -> None:
     """Extract credentials from *auth_dir* and store in the credential DB.
 
-    Uses the per-provider extractors from :mod:`credential_extractors`.
+    Uses the per-provider extractors from [`credential_extractors`][].
     If extraction fails (no credential file, malformed), prints a warning
     but does not raise — the auth flow succeeded, the user can retry.
 
@@ -489,7 +489,7 @@ def _codex_oauth_mount_writer(
     - **Default**: drop a phantom ``auth.json`` — the real ``id_token``
       JWT (for plan-tier + workspace UI, public claims only) and
       ``account_id`` survive, but ``access_token`` and ``refresh_token``
-      are replaced with :data:`PHANTOM_CREDENTIALS_MARKER`.  The vault
+      are replaced with [`PHANTOM_CREDENTIALS_MARKER`][].  The vault
       translates the marker back to the real token on inference
       requests; the CLI itself never sees the live bearer.  This is the
       fallback for tier 2 (proxied) and also a no-harm default for
@@ -565,7 +565,7 @@ def _write_codex_phantom_auth_json(cred_data: dict, dest: Path) -> None:
 
 #: Maps provider name → post-capture mount reconciler.  OAuth-capable
 #: providers register here to share the expose/proxy dispatch in
-#: :func:`_capture_credentials`.
+#: [`_capture_credentials`][].
 _OAUTH_MOUNT_WRITERS: dict[str, Callable[[Path, Path, dict, bool], None]] = {
     "claude": _claude_oauth_mount_writer,
     "codex": _codex_oauth_mount_writer,

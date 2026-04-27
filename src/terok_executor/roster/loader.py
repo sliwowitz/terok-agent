@@ -103,7 +103,7 @@ class VaultRoute:
     """Phantom env vars for OAuth credentials (e.g. ``{"CLAUDE_CODE_OAUTH_TOKEN": true}``).
 
     When the stored credential type is ``"oauth"`` and this is non-empty, these
-    env vars are injected *instead of* :attr:`phantom_env`.
+    env vars are injected *instead of* [`phantom_env`][].
     """
 
     base_url_env: str = ""
@@ -150,7 +150,7 @@ HelpSection = Literal["agent", "dev_tool"]
 """Section in the in-container help banner that an entry belongs to."""
 
 HELP_SECTIONS: tuple[HelpSection, ...] = get_args(HelpSection)
-"""All valid :data:`HelpSection` values, as a tuple (single source of truth)."""
+"""All valid [`HelpSection`][] values, as a tuple (single source of truth)."""
 
 
 @dataclass(frozen=True)
@@ -258,7 +258,7 @@ class AgentRoster:
         """Resolve a user-supplied selection into the full set of roster names to install.
 
         Accepts the literal string ``"all"`` (every roster entry that has an
-        :class:`InstallSpec`) or a tuple of names.  Expands ``depends_on``
+        [`InstallSpec`][]) or a tuple of names.  Expands ``depends_on``
         transitively.  Returns the names sorted alphabetically — the canonical
         order used for the OCI label, the tag suffix, and the in-container
         manifest.
@@ -410,7 +410,7 @@ def parse_agent_selection(raw: str) -> str | tuple[str, ...]:
     Accepts a comma-list (``"claude,codex"``) or the literal ``"all"``.
     Whitespace is stripped, empty / whitespace-only entries dropped,
     and case folded.  Empty or all-whitespace input collapses to
-    ``"all"`` — the same shape :meth:`AgentRoster.resolve_selection`
+    ``"all"`` — the same shape [`AgentRoster.resolve_selection`][]
     expects.  Unknown names are not checked here; ``resolve_selection``
     does that.
     """
@@ -538,7 +538,7 @@ def ensure_vault_routes(cfg: SandboxConfig | None = None) -> Path:
     """Generate ``routes.json`` from the YAML roster and write it to disk.
 
     The routes file is written to the path configured in
-    :class:`~terok_sandbox.SandboxConfig` (typically
+    [`SandboxConfig`][terok_sandbox.SandboxConfig] (typically
     ``~/.local/share/terok/vault/routes.json``).
 
     When *cfg* is ``None``, falls back to standalone defaults.
@@ -656,7 +656,7 @@ def _check_roster_version(name: str, data: dict, *, source: str) -> None:
     Missing or older versions still load silently — existing user overrides
     written before the marker existed must keep working, and older-but-still-
     understood roster files are the backward-compat path.  A declared
-    version strictly greater than :data:`ROSTER_VERSION` prints a warning,
+    version strictly greater than [`ROSTER_VERSION`][] prints a warning,
     because the host may not speak every field the file uses.
     """
     declared = data.pop("roster_version", None)
@@ -866,7 +866,7 @@ def _to_vault_route(name: str, data: dict) -> VaultRoute | None:
 
 
 def _to_sidecar_spec(name: str, data: dict) -> SidecarSpec | None:
-    """Parse the optional ``sidecar:`` YAML section into a :class:`SidecarSpec`."""
+    """Parse the optional ``sidecar:`` YAML section into a [`SidecarSpec`][]."""
     sc = data.get("sidecar")
     if not sc:
         return None
@@ -877,7 +877,7 @@ def _to_sidecar_spec(name: str, data: dict) -> SidecarSpec | None:
 
 
 def _to_install_spec(name: str, data: dict) -> InstallSpec | None:
-    """Parse the optional ``install:`` YAML section into an :class:`InstallSpec`.
+    """Parse the optional ``install:`` YAML section into an [`InstallSpec`][].
 
     Both snippet fields and ``depends_on`` are optional individually; the
     section as a whole is omitted only for entries that need no install
@@ -899,7 +899,7 @@ def _to_install_spec(name: str, data: dict) -> InstallSpec | None:
 
 
 def _to_help_spec(name: str, data: dict) -> HelpSpec | None:
-    """Parse the optional ``help:`` YAML section into a :class:`HelpSpec`."""
+    """Parse the optional ``help:`` YAML section into a [`HelpSpec`][]."""
     h = data.get("help")
     if not h:
         return None
