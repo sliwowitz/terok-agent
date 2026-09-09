@@ -2355,8 +2355,8 @@ test = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a34.dev487+g6e527574d"
-source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Fsupervisor-placement#6e527574d2de212cbb6db743f10ff0a3d849f1ef" }
+version = "0.5.0a34.dev491+ge08d2dc05"
+source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Fsupervisor-placement#e08d2dc05f64646d7831c749466b90f00591745d" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
