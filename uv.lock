@@ -2355,8 +2355,8 @@ test = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a36.dev4+g87ac1922b"
-source = { git = "https://github.com/terok-ai/terok-sandbox.git?rev=refs%2Fpull%2F549%2Fhead#87ac1922b939147fdda068242d7ac37cae343978" }
+version = "0.5.0a36.dev5+g8bf9f694f"
+source = { git = "https://github.com/terok-ai/terok-sandbox.git?rev=refs%2Fpull%2F549%2Fhead#8bf9f694fdf0e8671189f3c175216f35253d5fe9" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
